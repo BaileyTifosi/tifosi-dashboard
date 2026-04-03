@@ -182,7 +182,7 @@
 <div class="header">
   <div>
     <div class="header-title">Tifosi Optics &nbsp;|&nbsp; Marketing Dashboard</div>
-    <div class="header-sub">Updated: April 03, 2026 at 10:30 AM &nbsp;<span id="staleness"></span></div>
+    <div class="header-sub">Updated: April 03, 2026 at 11:12 AM &nbsp;<span id="staleness"></span></div>
   </div>
   <button class="date-btn" id="date-btn" onclick="openPicker()">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -220,6 +220,7 @@
             </label>
             <span class="period-tag cmp-tag" id="pp-cmp-tag" onclick="switchSelecting('cmp')" title="Click to edit compare period" style="display:none">—</span>
             <button class="last-yr-btn" id="last-yr-btn" onclick="setLastYear()" style="display:none">Last year</button>
+            <button class="last-yr-btn" id="same-days-btn" onclick="setSameDaysLastYear()" style="display:none">Same days last year</button>
             <button class="last-yr-btn" id="prev-period-btn" onclick="setPrevPeriod()" style="display:none">Previous period</button>
           </div>
         </div>
@@ -252,7 +253,7 @@
 </div>
 
 <script>
-const GENERATED_AT = new Date("2026-04-03T10:30:07");
+const GENERATED_AT = new Date("2026-04-03T11:12:55");
 (function() {
   function tick() {
     const hrs = (Date.now() - GENERATED_AT) / 3600000;
@@ -503,13 +504,14 @@ function renderCals() {
 
   const cmpTag=document.getElementById("pp-cmp-tag");
   const lyrBtn=document.getElementById("last-yr-btn");
+  const sameDaysBtn=document.getElementById("same-days-btn");
   const prevBtn=document.getElementById("prev-period-btn");
   if (st.compareOn) {
-    cmpTag.style.display="inline"; lyrBtn.style.display="inline"; prevBtn.style.display="inline";
+    cmpTag.style.display="inline"; lyrBtn.style.display="inline"; sameDaysBtn.style.display="inline"; prevBtn.style.display="inline";
     cmpTag.textContent = rangeLabel(st.cmpStart, st.cmpEnd);
     cmpTag.className = "period-tag cmp-tag" + (selectingFor==="cmp" ? " active-edit" : "");
   } else {
-    cmpTag.style.display="none"; lyrBtn.style.display="none"; prevBtn.style.display="none";
+    cmpTag.style.display="none"; lyrBtn.style.display="none"; sameDaysBtn.style.display="none"; prevBtn.style.display="none";
   }
   renderPresets();
 }
@@ -553,6 +555,12 @@ function toggleCompare(on) { st.compareOn=on; renderCals(); }
 function setLastYear() {
   st.cmpStart=clampDate(addYears(st.mainStart,-1));
   st.cmpEnd  =clampDate(addYears(st.mainEnd,  -1));
+  renderCals();
+}
+function setSameDaysLastYear() {
+  // Go back exactly 52 weeks (364 days) — preserves day of week
+  st.cmpStart=clampDate(addDays(st.mainStart,-364));
+  st.cmpEnd  =clampDate(addDays(st.mainEnd,  -364));
   renderCals();
 }
 function setPrevPeriod() {
