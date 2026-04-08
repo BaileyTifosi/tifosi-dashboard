@@ -11,4 +11,7 @@ jobs:
     steps:
       - name: Run dashboard update
         shell: cmd
-        run: '"C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat"'
+        run: |
+          echo Starting update...
+          "C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat"
+          echo Exit code: %ERRORLEVEL%
