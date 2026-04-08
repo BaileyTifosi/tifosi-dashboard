@@ -1,0 +1,7 @@
+requests
+facebook-business
+google-ads
+google-analytics-data
+google-auth
+bingads
+python-dotenv
