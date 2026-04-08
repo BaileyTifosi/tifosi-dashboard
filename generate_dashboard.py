@@ -463,44 +463,49 @@ def fetch_google(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     try:
         from google.ads.googleads.client import GoogleAdsClient
     except ImportError:
-        raise RuntimeError("Install: pip install google-ads")
+        print("[Google Ads] SDK not installed — skipping.")
+        return {}
 
-    client = GoogleAdsClient.load_from_dict({
-        "developer_token":   GOOGLEADS_DEVELOPER_TOKEN,
-        "client_id":         GOOGLEADS_OAUTH_CLIENT_ID,
-        "client_secret":     GOOGLEADS_OAUTH_CLIENT_SECRET,
-        "refresh_token":     GOOGLEADS_REFRESH_TOKEN,
-        "login_customer_id": GOOGLEADS_LOGIN_CUSTOMER_ID,
-        "use_proto_plus":    True,
-    })
-    service = client.get_service("GoogleAdsService")
-    query = f"""
-        SELECT segments.date, metrics.cost_micros, metrics.clicks,
-               metrics.impressions, metrics.conversions_value
-        FROM customer
-        WHERE segments.date BETWEEN '{start.isoformat()}' AND '{end.isoformat()}'
-    """
-    daily: Dict[str, Dict] = {}
-    for row in service.search(customer_id=GOOGLEADS_CUSTOMER_ID, query=query):
-        ds = row.segments.date
-        if ds not in daily:
-            daily[ds] = {"cost_micros": 0, "clicks": 0, "impressions": 0, "conv_value": 0.0}
-        daily[ds]["cost_micros"]  += int(row.metrics.cost_micros or 0)
-        daily[ds]["clicks"]       += int(row.metrics.clicks or 0)
-        daily[ds]["impressions"]  += int(row.metrics.impressions or 0)
-        daily[ds]["conv_value"]   += float(row.metrics.conversions_value or 0)
+    try:
+        client = GoogleAdsClient.load_from_dict({
+            "developer_token":   GOOGLEADS_DEVELOPER_TOKEN,
+            "client_id":         GOOGLEADS_OAUTH_CLIENT_ID,
+            "client_secret":     GOOGLEADS_OAUTH_CLIENT_SECRET,
+            "refresh_token":     GOOGLEADS_REFRESH_TOKEN,
+            "login_customer_id": GOOGLEADS_LOGIN_CUSTOMER_ID,
+            "use_proto_plus":    True,
+        })
+        service = client.get_service("GoogleAdsService")
+        query = f"""
+            SELECT segments.date, metrics.cost_micros, metrics.clicks,
+                   metrics.impressions, metrics.conversions_value
+            FROM customer
+            WHERE segments.date BETWEEN '{start.isoformat()}' AND '{end.isoformat()}'
+        """
+        daily: Dict[str, Dict] = {}
+        for row in service.search(customer_id=GOOGLEADS_CUSTOMER_ID, query=query):
+            ds = row.segments.date
+            if ds not in daily:
+                daily[ds] = {"cost_micros": 0, "clicks": 0, "impressions": 0, "conv_value": 0.0}
+            daily[ds]["cost_micros"]  += int(row.metrics.cost_micros or 0)
+            daily[ds]["clicks"]       += int(row.metrics.clicks or 0)
+            daily[ds]["impressions"]  += int(row.metrics.impressions or 0)
+            daily[ds]["conv_value"]   += float(row.metrics.conversions_value or 0)
 
-    out: Dict[str, Dict] = {}
-    for ds, v in daily.items():
-        spend = v["cost_micros"] / 1_000_000.0
-        out[ds] = {
-            "spend":             round(spend, 2),
-            "clicks":            v["clicks"],
-            "impressions":       v["impressions"],
-            "conversions_value": round(v["conv_value"], 2),
-        }
-    print(f"  Got {len(out)} days of data.")
-    return out
+        out: Dict[str, Dict] = {}
+        for ds, v in daily.items():
+            spend = v["cost_micros"] / 1_000_000.0
+            out[ds] = {
+                "spend":             round(spend, 2),
+                "clicks":            v["clicks"],
+                "impressions":       v["impressions"],
+                "conversions_value": round(v["conv_value"], 2),
+            }
+        print(f"  Got {len(out)} days of data.")
+        return out
+    except Exception as e:
+        print(f"[Google Ads] Error — skipping: {e}")
+        return {}
 
 
 # ============================================================
