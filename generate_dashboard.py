@@ -367,6 +367,9 @@ def fetch_shopify_products(start: dt.date, end: dt.date, batch_by_month: bool = 
 
 def fetch_meta(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM-DD: {spend, clicks, impressions, reach, purchase_value}}"""
+    if not META_ACCESS_TOKEN or not META_AD_ACCOUNT_ID:
+        print("[Meta] Credentials not set — skipping.")
+        return {}
     print(f"[Meta] Fetching daily ads insights ({start} to {end})...")
     try:
         from facebook_business.api import FacebookAdsApi
@@ -453,6 +456,9 @@ def fetch_meta_monthly_reach(start: dt.date, end: dt.date) -> Dict[str, int]:
 
 def fetch_google(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM-DD: {spend, clicks, impressions, conversions_value}}"""
+    if not GOOGLEADS_REFRESH_TOKEN or not GOOGLEADS_DEVELOPER_TOKEN:
+        print("[Google Ads] Credentials not set — skipping.")
+        return {}
     print(f"[Google Ads] Fetching daily campaign data ({start} to {end})...")
     try:
         from google.ads.googleads.client import GoogleAdsClient
@@ -503,6 +509,9 @@ def fetch_google(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 def fetch_ga4(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM-DD: {users, sessions}}"""
+    if not GA4_SERVICE_ACCOUNT_JSON or not GA4_PROPERTY_ID:
+        print("[GA4] Credentials not set — skipping.")
+        return {}
     print(f"[GA4] Fetching daily users + sessions ({start} to {end})...")
     try:
         from google.analytics.data_v1beta import BetaAnalyticsDataClient
@@ -539,6 +548,9 @@ def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM: {users, sessions}} — period-level totals per calendar month.
     Fetching month-by-month avoids GA4 sampling that occurs on long date ranges,
     and gives exact numbers matching what Whatagraph pulls."""
+    if not GA4_SERVICE_ACCOUNT_JSON or not GA4_PROPERTY_ID:
+        print("[GA4] Credentials not set — skipping monthly.")
+        return {}
     print(f"[GA4] Fetching monthly period totals ({start} to {end})...")
     try:
         from google.analytics.data_v1beta import BetaAnalyticsDataClient
@@ -750,6 +762,9 @@ def fetch_reddit(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 def fetch_klaviyo_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM: {emails_sent, revenue}} — period totals per calendar month."""
+    if not KLAVIYO_PRIVATE_API_KEY:
+        print("[Klaviyo] Credentials not set — skipping monthly.")
+        return {}
     print(f"[Klaviyo] Fetching monthly email stats ({start} to {end})...")
     import requests as _req
     from datetime import timezone
@@ -828,6 +843,9 @@ def fetch_klaviyo_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 def fetch_klaviyo_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM-DD: {emails_sent}} using metric-aggregates API."""
+    if not KLAVIYO_PRIVATE_API_KEY:
+        print("[Klaviyo] Credentials not set — skipping daily.")
+        return {}
     print(f"[Klaviyo] Fetching daily email counts ({start} to {end})...")
     import requests as _req
 
