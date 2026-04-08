@@ -1,0 +1,14 @@
+ name: Dashboard Refresh
+
+  on:
+    workflow_dispatch:
+    schedule:
+      - cron: '0 12 * * *'  # 7 AM EST / 8 AM EDT daily
+
+  jobs:
+    refresh:
+      runs-on: self-hosted
+      steps:
+        - name: Run dashboard update
+          run: cmd /c "C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph
+  Replacement\run_dashboard_update.bat"
