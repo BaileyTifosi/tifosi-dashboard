@@ -7,11 +7,57 @@ on:
 
 jobs:
   refresh:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
-      - name: Run dashboard update
-        shell: powershell
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/dashboard_cache.json
+          key: dashboard-cache-${{ github.run_id }}
+          restore-keys: dashboard-cache-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate dashboard
+        env:
+          SHOPIFY_ADMIN_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ADMIN_ACCESS_TOKEN }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          GOOGLEADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLEADS_DEVELOPER_TOKEN }}
+          GOOGLEADS_OAUTH_CLIENT_ID: ${{ secrets.GOOGLEADS_OAUTH_CLIENT_ID }}
+          GOOGLEADS_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLEADS_OAUTH_CLIENT_SECRET }}
+          GOOGLEADS_REFRESH_TOKEN: ${{ secrets.GOOGLEADS_REFRESH_TOKEN }}
+          GOOGLEADS_LOGIN_CUSTOMER_ID: ${{ secrets.GOOGLEADS_LOGIN_CUSTOMER_ID }}
+          GOOGLEADS_CUSTOMER_ID: ${{ secrets.GOOGLEADS_CUSTOMER_ID }}
+          GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
+          GA4_SERVICE_ACCOUNT_JSON: ${{ secrets.GA4_SERVICE_ACCOUNT_JSON }}
+          MSADS_DEVELOPER_TOKEN: ${{ secrets.MSADS_DEVELOPER_TOKEN }}
+          MSADS_CLIENT_ID: ${{ secrets.MSADS_CLIENT_ID }}
+          MSADS_CLIENT_SECRET: ${{ secrets.MSADS_CLIENT_SECRET }}
+          MSADS_TENANT_ID: ${{ secrets.MSADS_TENANT_ID }}
+          MSADS_ACCOUNT_ID: ${{ secrets.MSADS_ACCOUNT_ID }}
+          MSADS_REFRESH_TOKEN: ${{ secrets.MSADS_REFRESH_TOKEN }}
+          KLAVIYO_PRIVATE_API_KEY: ${{ secrets.KLAVIYO_PRIVATE_API_KEY }}
+        run: python generate_dashboard.py
+
+      - name: Commit and push updated dashboard
         run: |
-          $bat = 'C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat'
-          $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$bat`"" -Wait -PassThru -NoNewWindow
-          exit $proc.ExitCode
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add index.html .cache/dashboard_cache.json || true
+          git diff --staged --quiet || git commit -m "Auto-update dashboard $(date -u +%Y-%m-%d)"
+          git push
