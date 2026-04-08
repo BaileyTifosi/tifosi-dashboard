@@ -67,10 +67,23 @@ GOOGLEADS_CUSTOMER_ID         = _e("GOOGLEADS_CUSTOMER_ID")
 GA4_PROPERTY_ID = _e("GA4_PROPERTY_ID")
 _ga4_json_str   = os.environ.get("GA4_SERVICE_ACCOUNT_JSON", "")
 if _ga4_json_str:
-    _ga4_tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
-    _ga4_tmp.write(_ga4_json_str)
-    _ga4_tmp.close()
-    GA4_SERVICE_ACCOUNT_JSON = _ga4_tmp.name
+    # GitHub Secrets sometimes expands \n sequences to real newlines inside the
+    # private key, making the JSON invalid. Try raw first, then fix newlines.
+    _ga4_info = None
+    for _attempt in [_ga4_json_str, _ga4_json_str.replace('\r\n', '\\n').replace('\n', '\\n')]:
+        try:
+            _ga4_info = json.loads(_attempt)
+            break
+        except json.JSONDecodeError:
+            continue
+    if _ga4_info:
+        _ga4_tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump(_ga4_info, _ga4_tmp)
+        _ga4_tmp.close()
+        GA4_SERVICE_ACCOUNT_JSON = _ga4_tmp.name
+    else:
+        GA4_SERVICE_ACCOUNT_JSON = ""
+        print("[config] GA4_SERVICE_ACCOUNT_JSON could not be parsed — GA4 will show N/A")
 else:
     GA4_SERVICE_ACCOUNT_JSON = ""
     print("[config] GA4_SERVICE_ACCOUNT_JSON not set — GA4 will show N/A")
@@ -523,30 +536,35 @@ def fetch_ga4(start: dt.date, end: dt.date) -> Dict[str, Dict]:
         from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
         from google.oauth2 import service_account
     except ImportError:
-        raise RuntimeError("Install: pip install google-analytics-data google-auth")
+        print("[GA4] SDK not installed — skipping.")
+        return {}
 
-    creds = service_account.Credentials.from_service_account_file(
-        GA4_SERVICE_ACCOUNT_JSON,
-        scopes=["https://www.googleapis.com/auth/analytics.readonly"],
-    )
-    ga4_client = BetaAnalyticsDataClient(credentials=creds)
-    req = RunReportRequest(
-        property=f"properties/{GA4_PROPERTY_ID}",
-        dimensions=[Dimension(name="date")],
-        metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
-        date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
-    )
-    resp = ga4_client.run_report(req)
-    out: Dict[str, Dict] = {}
-    for row in resp.rows:
-        compact = row.dimension_values[0].value   # "YYYYMMDD"
-        ds = f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}"
-        out[ds] = {
-            "users":    int(row.metric_values[0].value or 0),
-            "sessions": int(row.metric_values[1].value or 0),
-        }
-    print(f"  Got {len(out)} days of data.")
-    return out
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            GA4_SERVICE_ACCOUNT_JSON,
+            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+        )
+        ga4_client = BetaAnalyticsDataClient(credentials=creds)
+        req = RunReportRequest(
+            property=f"properties/{GA4_PROPERTY_ID}",
+            dimensions=[Dimension(name="date")],
+            metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
+            date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
+        )
+        resp = ga4_client.run_report(req)
+        out: Dict[str, Dict] = {}
+        for row in resp.rows:
+            compact = row.dimension_values[0].value   # "YYYYMMDD"
+            ds = f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}"
+            out[ds] = {
+                "users":    int(row.metric_values[0].value or 0),
+                "sessions": int(row.metric_values[1].value or 0),
+            }
+        print(f"  Got {len(out)} days of data.")
+        return out
+    except Exception as e:
+        print(f"[GA4] Error — skipping: {e}")
+        return {}
 
 
 def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
@@ -564,10 +582,15 @@ def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     except ImportError:
         return {}
 
-    creds = service_account.Credentials.from_service_account_file(
-        GA4_SERVICE_ACCOUNT_JSON,
-        scopes=["https://www.googleapis.com/auth/analytics.readonly"],
-    )
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            GA4_SERVICE_ACCOUNT_JSON,
+            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+        )
+    except Exception as e:
+        print(f"[GA4] Could not load service account — skipping monthly: {e}")
+        return {}
+
     ga4_client = BetaAnalyticsDataClient(credentials=creds)
     out: Dict[str, Dict] = {}
 
