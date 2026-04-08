@@ -10,8 +10,8 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: Run dashboard update
-        shell: cmd
+        shell: powershell
         run: |
-          echo Starting update...
-          "C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat"
-          echo Exit code: %ERRORLEVEL%
+          $bat = 'C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat'
+          $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$bat`"" -Wait -PassThru -NoNewWindow
+          exit $proc.ExitCode
