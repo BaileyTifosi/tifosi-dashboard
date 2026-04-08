@@ -10,4 +10,5 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: Run dashboard update
-        run: 'cmd /c "C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat"'
+        shell: cmd
+        run: '"C:\Users\bearley\OneDrive - Tifosi Optics\Whatagraph Replacement\run_dashboard_update.bat"'
