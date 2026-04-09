@@ -2255,8 +2255,8 @@ def generate_html(daily: Dict[str, Dict], products: Dict[str, Dict], output: str
     data_clean     = {ds: clean(v) for ds, v in daily.items()}
     products_clean = {ds: clean(v) for ds, v in products.items()}
     days_sorted    = sorted(data_clean.keys(), reverse=True)
-    now            = dt.datetime.now()
-    generated_at   = now.strftime("%B %d, %Y at %I:%M %p")
+    now            = dt.datetime.now(dt.timezone.utc)
+    generated_at   = now.strftime("%B %d, %Y at %I:%M %p UTC")
     generated_iso  = now.strftime("%Y-%m-%dT%H:%M:%S")
     reach_clean       = monthly_meta_reach or {}
     ga4_clean         = monthly_ga4 or {}
