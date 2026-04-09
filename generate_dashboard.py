@@ -1587,22 +1587,23 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 
 <script>
-const GENERATED_AT = new Date("__GENERATED_AT_ISO__");
+const GENERATED_AT = new Date("__GENERATED_AT_ISO__Z");
 (function() {
   function tick() {
     const hrs = (Date.now() - GENERATED_AT) / 3600000;
     const el  = document.getElementById("staleness");
     if (!el) return;
-    let label, color;
-    if (hrs < 1)       { label = "just now";                    color = "#6EE7B7"; }
-    else if (hrs < 12) { label = Math.floor(hrs)+"h ago";       color = "#6EE7B7"; }
-    else if (hrs < 24) { label = Math.floor(hrs)+"h ago";       color = "#FCD34D"; }
+    let age, color;
+    if (hrs < 1)       { age = "just now";                               color = "#6EE7B7"; }
+    else if (hrs < 12) { age = Math.floor(hrs)+"h ago";                  color = "#6EE7B7"; }
+    else if (hrs < 24) { age = Math.floor(hrs)+"h ago";                  color = "#FCD34D"; }
     else {
       const d = Math.floor(hrs/24);
-      label = d+"d "+Math.floor(hrs%24)+"h ago — run update";
+      age = d+"d "+Math.floor(hrs%24)+"h ago — run update";
       color = "#FCA5A5";
     }
-    el.textContent = "· "+label;
+    const etTime = GENERATED_AT.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit", timeZone:"America/New_York", timeZoneName:"short"});
+    el.textContent = "· refreshed at " + etTime + " (" + age + ")";
     el.style.cssText = `color:${color};font-weight:600;`;
   }
   tick();
