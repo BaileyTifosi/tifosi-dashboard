@@ -61,6 +61,11 @@ jobs:
           AMAZON_ADS_CLIENT_SECRET: ${{secrets.AMAZON_ADS_CLIENT_SECRET }}
           AMAZON_ADS_REFRESH_TOKEN: ${{secrets.AMAZON_ADS_REFRESH_TOKEN }}
           AMAZON_ADS_PROFILE_ID: ${{ secrets.AMAZON_ADS_PROFILE_ID }}
+          AMAZON_SP_REFRESH_TOKEN: ${{ secrets.AMAZON_SP_REFRESH_TOKEN }}
+          AMAZON_SP_LWA_APP_ID: ${{ secrets.AMAZON_SP_LWA_APP_ID }}
+          AMAZON_SP_LWA_CLIENT_SECRET: ${{secrets.AMAZON_SP_LWA_CLIENT_SECRET }}
+          AMAZON_SP_AWS_ACCESS_KEY: ${{ secrets.AMAZON_SP_AWS_ACCESS_KEY }}
+          AMAZON_SP_AWS_SECRET_KEY: ${{ secrets.AMAZON_SP_AWS_SECRET_KEY }}
         run: python generate_dashboard.py
 
       - name: Commit and push updated dashboard
