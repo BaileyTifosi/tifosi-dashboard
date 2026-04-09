@@ -1616,8 +1616,8 @@ const GENERATED_AT = new Date("__GENERATED_AT_ISO__Z");
       age = d+"d "+Math.floor(hrs%24)+"h ago — run update";
       color = "#FCA5A5";
     }
-    const etTime = GENERATED_AT.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit", timeZone:"America/New_York", timeZoneName:"short"});
-    el.textContent = "· refreshed at " + etTime + " (" + age + ")";
+    const etTime = GENERATED_AT.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit", timeZone:"America/New_York"});
+    el.textContent = "· refreshed at " + etTime + " EST (" + age + ")";
     el.style.cssText = `color:${color};font-weight:600;`;
   }
   tick();
@@ -2272,7 +2272,7 @@ def generate_html(daily: Dict[str, Dict], products: Dict[str, Dict], output: str
     days_sorted    = sorted(data_clean.keys(), reverse=True)
     from zoneinfo import ZoneInfo
     now            = dt.datetime.now(ZoneInfo("America/New_York"))
-    generated_at   = now.strftime("%B %d, %Y at %I:%M %p ET")
+    generated_at   = now.strftime("%B %d, %Y at %I:%M %p EST")
     generated_iso  = now.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     reach_clean       = monthly_meta_reach or {}
     ga4_clean         = monthly_ga4 or {}
