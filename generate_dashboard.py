@@ -1076,6 +1076,9 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
                 if m:
                     pending[label] = (m.group(0), purch_col, sales_col)
                 continue
+            if r.status_code == 429:
+                time.sleep(30)
+                r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
             if r.status_code in (400, 422):
                 print(f"  [Amazon Ads] {label} create error {r.status_code}: {r.text[:400]}")
                 # Retry with minimal columns (spend + impressions only)
