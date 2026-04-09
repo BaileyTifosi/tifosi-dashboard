@@ -4,5 +4,4 @@ google-ads
 google-analytics-data
 google-auth
 bingads
-git+https://github.com/BingAds/BingAds-Python-SDK.git#subdirectory=BingAdsApiService
 python-dotenv
