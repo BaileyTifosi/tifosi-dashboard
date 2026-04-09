@@ -78,9 +78,15 @@ if _ga4_json_str:
         except json.JSONDecodeError:
             continue
     if _ga4_info:
-        # Ensure private_key newlines are real newlines (not literal \n strings)
         if "private_key" in _ga4_info:
-            _ga4_info["private_key"] = _ga4_info["private_key"].replace("\\n", "\n")
+            import re as _re
+            pk = _ga4_info["private_key"]
+            # Fix corrupted PEM headers (space between words replaced by newline)
+            pk = _re.sub(r'-----BEGIN\s+PRIVATE\s+KEY-----', '-----BEGIN PRIVATE KEY-----', pk)
+            pk = _re.sub(r'-----END\s+PRIVATE\s+KEY-----', '-----END PRIVATE KEY-----', pk)
+            # Ensure line separators are real newlines (not literal \n)
+            pk = pk.replace('\\n', '\n')
+            _ga4_info["private_key"] = pk
         GA4_SERVICE_ACCOUNT_INFO = _ga4_info
     else:
         print("[config] GA4_SERVICE_ACCOUNT_JSON could not be parsed — GA4 will show N/A")
