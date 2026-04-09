@@ -1027,10 +1027,24 @@ def fetch_klaviyo_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Fetch Amazon Ads (SP+SB+SD) daily data via Advertising API v3.
-    Returns {YYYY-MM-DD: {amz_ad_spend, amz_ad_sales, amz_impressions, amz_purchases}}."""
+    Returns {YYYY-MM-DD: {amz_ad_spend, amz_ad_sales, amz_impressions, amz_purchases}}.
+    Automatically chunks large date ranges into 90-day windows."""
     if not AMAZON_ADS_CLIENT_ID or not AMAZON_ADS_REFRESH_TOKEN:
         print("[Amazon Ads] Credentials not set — skipping.")
         return {}
+    # Chunk into 90-day windows for large date ranges
+    if (end - start).days > 90:
+        print(f"[Amazon Ads] Date range {(end-start).days} days — chunking into 90-day windows...")
+        merged: Dict[str, Dict] = {}
+        chunk_start = start
+        while chunk_start <= end:
+            chunk_end = min(chunk_start + dt.timedelta(days=89), end)
+            chunk_data = fetch_amazon_ads(chunk_start, chunk_end)
+            merged.update(chunk_data)
+            chunk_start = chunk_end + dt.timedelta(days=1)
+            time.sleep(2)  # avoid throttling between chunks
+        print(f"[Amazon Ads] Got {len(merged)} days total across all chunks.")
+        return merged
     try:
         import requests as _req, gzip as _gzip, io as _io
 
@@ -2259,7 +2273,7 @@ def generate_html(daily: Dict[str, Dict], products: Dict[str, Dict], output: str
     from zoneinfo import ZoneInfo
     now            = dt.datetime.now(ZoneInfo("America/New_York"))
     generated_at   = now.strftime("%B %d, %Y at %I:%M %p ET")
-    generated_iso  = now.strftime("%Y-%m-%dT%H:%M:%S")
+    generated_iso  = now.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     reach_clean       = monthly_meta_reach or {}
     ga4_clean         = monthly_ga4 or {}
     klaviyo_clean     = monthly_klaviyo or {}
