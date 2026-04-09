@@ -626,84 +626,156 @@ def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 # ============================================================
 
 def fetch_msads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
-    """Returns {YYYY-MM-DD: {spend, clicks, conversions_value}} — Daily aggregation."""
+    """Returns {YYYY-MM-DD: {spend, clicks, conversions_value}} — Daily aggregation.
+    Uses direct SOAP/HTTP calls to bypass platform-specific SDK issues."""
     print(f"[Microsoft Ads] Fetching daily spend + clicks ({start} to {end})...")
 
     refresh_token = MSADS_REFRESH_TOKEN_VALUE
-    if not refresh_token:
-        print("  MSADS_REFRESH_TOKEN not set. Skipping.")
+    if not refresh_token or not MSADS_CLIENT_ID or not MSADS_DEVELOPER_TOKEN:
+        print("  Microsoft Ads credentials not set. Skipping.")
         return {}
 
-    try:
-        from bingads.authorization import AuthorizationData, OAuthWebAuthCodeGrant
-        from bingads.v13.reporting import ReportingDownloadParameters, ReportingServiceManager
-        from openapi_client.models.reporting.campaign_performance_report_request import CampaignPerformanceReportRequest
-        from openapi_client.models.reporting.account_through_campaign_report_scope import AccountThroughCampaignReportScope
-        from openapi_client.models.reporting.report_time import ReportTime
-        from openapi_client.models.reporting.date import Date as MsDate
-        from openapi_client.models.reporting.campaign_performance_report_column import CampaignPerformanceReportColumn
-    except ImportError as e:
-        print(f"  msads SDK not available: {e}. Skipping.")
-        return {}
-
-    account_id = int(float(MSADS_ACCOUNT_ID))
-    auth = OAuthWebAuthCodeGrant(
-        client_id=MSADS_CLIENT_ID, client_secret=MSADS_CLIENT_SECRET,
-        redirection_uri=MSADS_REDIRECT_URI, env="production", tenant=MSADS_TENANT_ID,
-    )
-
-    def _on_refresh(oauth_tokens):
-        pass  # Phase 2: persist rotated token to GitHub Secret via API
-
-    auth.token_refreshed_callback = _on_refresh
-    auth_data = AuthorizationData(
-        developer_token=MSADS_DEVELOPER_TOKEN, authentication=auth,
-        account_id=account_id, customer_id=None,
-    )
-    auth.request_oauth_tokens_by_refresh_token(refresh_token)
-    reporting_manager = ReportingServiceManager(
-        authorization_data=auth_data,
-        poll_interval_in_milliseconds=5000,
-        environment="production",
-    )
-
-    rr = CampaignPerformanceReportRequest(
-        report_name="Dashboard Daily",
-        format="Csv",
-        aggregation="Daily",
-        exclude_report_header=True,
-        exclude_report_footer=True,
-        exclude_column_headers=False,
-        return_only_complete_data=False,
-        scope=AccountThroughCampaignReportScope(account_ids=[str(account_id)], campaigns=None),
-        time=ReportTime(
-            report_time_zone=MSADS_REPORT_TIMEZONE,
-            predefined_time=None,
-            custom_date_range_start=MsDate(year=start.year, month=start.month, day=start.day),
-            custom_date_range_end=MsDate(year=end.year,     month=end.month,   day=end.day),
-        ),
-        columns=[
-            CampaignPerformanceReportColumn("TimePeriod"),
-            CampaignPerformanceReportColumn("Spend"),
-            CampaignPerformanceReportColumn("Clicks"),
-            CampaignPerformanceReportColumn("Revenue"),
-        ],
-    )
+    import requests as _req
+    import io, zipfile
 
     out: Dict[str, Dict] = {}
     try:
-        with tempfile.TemporaryDirectory(prefix="msads_dash_") as tmpdir:
-            params = ReportingDownloadParameters(
-                report_request=rr,
-                result_file_directory=tmpdir,
-                result_file_name="msads_daily.csv",
-                overwrite_result_file=True,
-                timeout_in_milliseconds=3600000,
+        # Step 1: Get OAuth access token
+        tok_r = _req.post(
+            f"https://login.microsoftonline.com/{MSADS_TENANT_ID}/oauth2/v2.0/token",
+            data={
+                "grant_type":    "refresh_token",
+                "client_id":     MSADS_CLIENT_ID,
+                "client_secret": MSADS_CLIENT_SECRET,
+                "refresh_token": refresh_token,
+                "scope":         "https://ads.microsoft.com/msads.manage offline_access",
+            },
+            timeout=30,
+        )
+        tok_r.raise_for_status()
+        access_token = tok_r.json()["access_token"]
+
+        account_id = int(float(MSADS_ACCOUNT_ID))
+
+        soap_headers = {
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction":   "SubmitGenerateReport",
+        }
+        soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v13="https://bingads.microsoft.com/Reporting/v13"
+                  xmlns:arr="http://schemas.microsoft.com/2003/10/Serialization/Arrays"
+                  xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Header>
+    <v13:AuthenticationToken>{access_token}</v13:AuthenticationToken>
+    <v13:DeveloperToken>{MSADS_DEVELOPER_TOKEN}</v13:DeveloperToken>
+    <v13:AccountId>{account_id}</v13:AccountId>
+  </soapenv:Header>
+  <soapenv:Body>
+    <v13:SubmitGenerateReportRequest>
+      <v13:ReportRequest i:type="v13:CampaignPerformanceReportRequest">
+        <v13:ExcludeColumnHeaders>false</v13:ExcludeColumnHeaders>
+        <v13:ExcludeReportFooter>true</v13:ExcludeReportFooter>
+        <v13:ExcludeReportHeader>true</v13:ExcludeReportHeader>
+        <v13:Format>Csv</v13:Format>
+        <v13:ReportName>Dashboard Daily</v13:ReportName>
+        <v13:ReturnOnlyCompleteData>false</v13:ReturnOnlyCompleteData>
+        <v13:Aggregation>Daily</v13:Aggregation>
+        <v13:Columns>
+          <v13:CampaignPerformanceReportColumn>TimePeriod</v13:CampaignPerformanceReportColumn>
+          <v13:CampaignPerformanceReportColumn>Spend</v13:CampaignPerformanceReportColumn>
+          <v13:CampaignPerformanceReportColumn>Clicks</v13:CampaignPerformanceReportColumn>
+          <v13:CampaignPerformanceReportColumn>Revenue</v13:CampaignPerformanceReportColumn>
+        </v13:Columns>
+        <v13:Scope>
+          <v13:AccountIds>
+            <arr:long>{account_id}</arr:long>
+          </v13:AccountIds>
+        </v13:Scope>
+        <v13:Time>
+          <v13:CustomDateRangeEnd>
+            <v13:Day>{end.day}</v13:Day>
+            <v13:Month>{end.month}</v13:Month>
+            <v13:Year>{end.year}</v13:Year>
+          </v13:CustomDateRangeEnd>
+          <v13:CustomDateRangeStart>
+            <v13:Day>{start.day}</v13:Day>
+            <v13:Month>{start.month}</v13:Month>
+            <v13:Year>{start.year}</v13:Year>
+          </v13:CustomDateRangeStart>
+          <v13:ReportTimeZone>{MSADS_REPORT_TIMEZONE}</v13:ReportTimeZone>
+        </v13:Time>
+      </v13:ReportRequest>
+    </v13:SubmitGenerateReportRequest>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+        # Step 2: Submit report
+        endpoint = "https://reporting.api.bingads.microsoft.com/Reporting/v13/ReportingService.svc"
+        r = _req.post(endpoint, headers=soap_headers, data=soap_body.encode("utf-8"), timeout=60)
+        r.raise_for_status()
+
+        import xml.etree.ElementTree as ET
+        ns = {
+            "s":   "http://schemas.xmlsoap.org/soap/envelope/",
+            "v13": "https://bingads.microsoft.com/Reporting/v13",
+        }
+        root = ET.fromstring(r.text)
+        req_id_el = root.find(".//v13:ReportRequestId", ns)
+        if req_id_el is None:
+            print(f"  [Microsoft Ads] No request ID in response: {r.text[:300]}")
+            return {}
+        report_request_id = req_id_el.text.strip()
+
+        # Step 3: Poll for completion
+        poll_soap = f"""<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v13="https://bingads.microsoft.com/Reporting/v13">
+  <soapenv:Header>
+    <v13:AuthenticationToken>{access_token}</v13:AuthenticationToken>
+    <v13:DeveloperToken>{MSADS_DEVELOPER_TOKEN}</v13:DeveloperToken>
+    <v13:AccountId>{account_id}</v13:AccountId>
+  </soapenv:Header>
+  <soapenv:Body>
+    <v13:PollGenerateReportRequest>
+      <v13:ReportRequestId>{report_request_id}</v13:ReportRequestId>
+    </v13:PollGenerateReportRequest>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+        download_url = None
+        for _ in range(60):
+            time.sleep(5)
+            poll_r = _req.post(
+                endpoint,
+                headers={**soap_headers, "SOAPAction": "PollGenerateReport"},
+                data=poll_soap.encode("utf-8"),
+                timeout=60,
             )
-            result_path = reporting_manager.download_file(params)
-            daily: Dict[str, Dict] = {}
-            with open(result_path, "r", encoding="utf-8-sig", newline="") as f:
-                reader = csv.DictReader(f)
+            poll_r.raise_for_status()
+            poll_root = ET.fromstring(poll_r.text)
+            status_el  = poll_root.find(".//v13:ReportRequestStatus/v13:Status", ns)
+            url_el     = poll_root.find(".//v13:ReportRequestStatus/v13:ReportDownloadUrl", ns)
+            status = status_el.text.strip() if status_el is not None else ""
+            if status == "Success" and url_el is not None:
+                download_url = url_el.text.strip()
+                break
+            if status in ("Error", "Failed"):
+                print(f"  [Microsoft Ads] Report generation failed: {status}")
+                return {}
+
+        if not download_url:
+            print("  [Microsoft Ads] Timed out waiting for report.")
+            return {}
+
+        # Step 4: Download and parse
+        dl = _req.get(download_url, timeout=120)
+        dl.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(dl.content)) as zf:
+            csv_name = zf.namelist()[0]
+            with zf.open(csv_name) as csv_file:
+                reader = csv.DictReader(io.TextIOWrapper(csv_file, encoding="utf-8-sig"))
+                daily: Dict[str, Dict] = {}
                 for row in reader:
                     tp = (row.get("TimePeriod") or "").strip()
                     if not tp or len(tp) < 10:
@@ -717,8 +789,12 @@ def fetch_msads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
                         daily[ds]["conversions_value"] += float(row.get("Revenue", 0) or 0)
                     except Exception:
                         pass
-            for ds, v in daily.items():
-                out[ds] = {"spend": round(v["spend"], 2), "clicks": v["clicks"], "conversions_value": round(v["conversions_value"], 2)}
+                for ds, v in daily.items():
+                    out[ds] = {
+                        "spend":             round(v["spend"], 2),
+                        "clicks":            v["clicks"],
+                        "conversions_value": round(v["conversions_value"], 2),
+                    }
     except Exception as e:
         print(f"  [Microsoft Ads] Error: {e}")
 
