@@ -57,6 +57,10 @@ jobs:
           REDDIT_AD_ACCOUNT_ID: ${{ secrets.REDDIT_AD_ACCOUNT_ID }}
           REDDIT_BUSINESS_ID: ${{ secrets.REDDIT_BUSINESS_ID }}
           REDDIT_REFRESH_TOKEN: ${{ secrets.REDDIT_REFRESH_TOKEN }}
+          AMAZON_ADS_CLIENT_ID: ${{ secrets.AMAZON_ADS_CLIENT_ID }}
+          AMAZON_ADS_CLIENT_SECRET: ${{secrets.AMAZON_ADS_CLIENT_SECRET }}
+          AMAZON_ADS_REFRESH_TOKEN: ${{secrets.AMAZON_ADS_REFRESH_TOKEN }}
+          AMAZON_ADS_PROFILE_ID: ${{ secrets.AMAZON_ADS_PROFILE_ID }}
         run: python generate_dashboard.py
 
       - name: Commit and push updated dashboard
