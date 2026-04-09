@@ -711,7 +711,7 @@ def fetch_msads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 </soapenv:Envelope>"""
 
         # Step 2: Submit report
-        endpoint = "https://reporting.api.bingads.microsoft.com/Reporting/v13/ReportingService.svc"
+        endpoint = "https://reporting.api.bingads.microsoft.com/Api/Advertiser/Reporting/v13/ReportingService.svc"
         r = _req.post(endpoint, headers=soap_headers, data=soap_body.encode("utf-8"), timeout=60)
         r.raise_for_status()
 
