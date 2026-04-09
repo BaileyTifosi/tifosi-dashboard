@@ -126,7 +126,7 @@ AMAZON_ADS_EXPORTS_DIR = os.environ.get(
 # OUTPUT PATHS / SETTINGS
 # ============================================================
 _HERE       = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_HTML = os.path.join(_HERE, "tifosi_dashboard.html")
+OUTPUT_HTML = os.path.join(_HERE, "index.html")
 CACHE_FILE  = os.path.join(_HERE, ".cache", "dashboard_cache.json")
 os.makedirs(os.path.join(_HERE, ".cache"), exist_ok=True)
 SHOPIFY_TIMEZONE = "America/New_York"   # Must match your Shopify store timezone
