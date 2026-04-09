@@ -1044,8 +1044,8 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
              ["date", "impressions", "cost", "purchases7d",      "sales7d"],
              "purchases7d",      "sales7d"),
             ("SB", "SPONSORED_BRANDS",   "sbCampaigns",
-             ["date", "impressions", "cost", "purchases14d",     "sales14d"],
-             "purchases14d",     "sales14d"),
+             ["date", "impressions", "cost", "purchases",        "sales"],
+             "purchases",        "sales"),
             ("SD", "SPONSORED_DISPLAY",  "sdCampaigns",
              ["date", "impressions", "cost", "purchasesClicks",  "salesClicks"],
              "purchasesClicks",  "salesClicks"),
@@ -1069,6 +1069,13 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
                 },
             }
             r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
+            if r.status_code == 425:
+                # Duplicate — extract existing reportId and reuse it
+                import re as _re
+                m = _re.search(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', r.text)
+                if m:
+                    pending[label] = (m.group(0), purch_col, sales_col)
+                continue
             if r.status_code in (400, 422):
                 print(f"  [Amazon Ads] {label} create error {r.status_code}: {r.text[:400]}")
                 # Retry with minimal columns (spend + impressions only)
