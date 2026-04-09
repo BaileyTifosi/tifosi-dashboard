@@ -116,11 +116,11 @@ REDDIT_BUSINESS_ID   = os.environ.get("REDDIT_BUSINESS_ID", "")
 REDDIT_REDIRECT_URI  = "https://www.tifosioptics.com"
 REDDIT_REFRESH_TOKEN_VALUE = os.environ.get("REDDIT_REFRESH_TOKEN", "")
 
-# --- Amazon Ads (Phase 2 — reads local export files, skips gracefully when absent) ---
-AMAZON_ADS_EXPORTS_DIR = os.environ.get(
-    "AMAZON_ADS_EXPORTS_DIR",
-    r"C:\Users\bearley\OneDrive - Tifosi Optics\Additional KPI Python\amazon_ads_exports"
-)
+# --- Amazon Ads API ---
+AMAZON_ADS_CLIENT_ID     = _e("AMAZON_ADS_CLIENT_ID")
+AMAZON_ADS_CLIENT_SECRET = _e("AMAZON_ADS_CLIENT_SECRET")
+AMAZON_ADS_REFRESH_TOKEN = _e("AMAZON_ADS_REFRESH_TOKEN")
+AMAZON_ADS_PROFILE_ID    = _e("AMAZON_ADS_PROFILE_ID")
 
 # ============================================================
 # OUTPUT PATHS / SETTINGS
@@ -1009,59 +1009,135 @@ def fetch_klaviyo_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 # AMAZON ADS
 # ============================================================
 
-def read_amazon_ads_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
-    """Read daily Amazon Ads data (SP+SB+SD) from gzip exports.
+def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
+    """Fetch Amazon Ads (SP+SB+SD) daily data via Advertising API v3.
     Returns {YYYY-MM-DD: {amz_ad_spend, amz_ad_sales, amz_impressions, amz_purchases}}."""
-    import gzip as _gzip
-    daily: Dict[str, Dict] = {}
-    start_iso, end_iso = start.isoformat(), end.isoformat()
+    if not AMAZON_ADS_CLIENT_ID or not AMAZON_ADS_REFRESH_TOKEN:
+        print("[Amazon Ads] Credentials not set — skipping.")
+        return {}
+    try:
+        import gzip as _gzip, io as _io
 
-    for ms, _me in iter_months(start, end):
-        ym = ms.strftime("%Y-%m")
-        export_base = os.path.join(AMAZON_ADS_EXPORTS_DIR, ym)
-        if not os.path.exists(export_base):
-            continue
-        # Find profile subdirectory
-        profile_dir = next(
-            (os.path.join(export_base, d) for d in os.listdir(export_base)
-             if os.path.isdir(os.path.join(export_base, d))), None
+        # Step 1: Get access token
+        tok_r = _req.post(
+            "https://api.amazon.com/auth/o2/token",
+            data={
+                "grant_type":    "refresh_token",
+                "refresh_token": AMAZON_ADS_REFRESH_TOKEN,
+                "client_id":     AMAZON_ADS_CLIENT_ID,
+                "client_secret": AMAZON_ADS_CLIENT_SECRET,
+            },
+            timeout=30,
         )
-        if not profile_dir:
-            continue
+        tok_r.raise_for_status()
+        access_token = tok_r.json()["access_token"]
 
-        # (filename, spend_key, sales_key, purchases_key)
-        file_configs = [
-            (f"spCampaigns_{ym}.json.gz", "cost",  "sales7d",      "purchases7d"),
-            (f"sbCampaigns_{ym}.json.gz", "cost",  "sales",        "purchases"),
-            (f"sdCampaigns_{ym}.json.gz", "cost",  "salesClicks",  "purchasesClicks"),
+        base_headers = {
+            "Authorization":                    f"Bearer {access_token}",
+            "Amazon-Advertising-API-ClientId":  AMAZON_ADS_CLIENT_ID,
+            "Amazon-Advertising-API-Scope":     AMAZON_ADS_PROFILE_ID,
+        }
+        api_base = "https://advertising-api.amazon.com"
+
+        report_configs = [
+            ("SP", "SPONSORED_PRODUCTS", "spCampaigns",
+             ["date", "impressions", "cost", "purchases7d",      "sales7d"],
+             "purchases7d",      "sales7d"),
+            ("SB", "SPONSORED_BRANDS",   "sbCampaigns",
+             ["date", "impressions", "cost", "purchases14d",     "sales14d"],
+             "purchases14d",     "sales14d"),
+            ("SD", "SPONSORED_DISPLAY",  "sdCampaigns",
+             ["date", "impressions", "cost", "purchasesClicks",  "salesClicks"],
+             "purchasesClicks",  "salesClicks"),
         ]
-        for filename, spend_key, sales_key, purch_key in file_configs:
-            filepath = os.path.join(profile_dir, filename)
-            if not os.path.exists(filepath):
-                continue
+
+        # Step 2: Create all 3 reports
+        pending: Dict[str, tuple] = {}
+        create_headers = {**base_headers, "Content-Type": "application/vnd.createasyncreportrequest.v3+json"}
+        for label, ad_product, report_type_id, columns, purch_col, sales_col in report_configs:
+            body = {
+                "name": f"Dashboard {label} {start} {end}",
+                "startDate": start.isoformat(),
+                "endDate":   end.isoformat(),
+                "configuration": {
+                    "adProduct":    ad_product,
+                    "groupBy":      ["campaign"],
+                    "columns":      columns,
+                    "reportTypeId": report_type_id,
+                    "timeUnit":     "DAILY",
+                    "format":       "GZIP_JSON",
+                },
+            }
+            r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
+            if r.status_code == 422:
+                # Some accounts don't support specific purchase/sales columns — try without them
+                body["configuration"]["columns"] = ["date", "impressions", "cost"]
+                r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
+                purch_col, sales_col = None, None
+            r.raise_for_status()
+            report_id = r.json().get("reportId")
+            if report_id:
+                pending[label] = (report_id, purch_col, sales_col)
+
+        # Step 3: Poll until all reports complete (max 10 min)
+        download_urls: Dict[str, tuple] = {}
+        deadline = time.time() + 600
+        while pending and time.time() < deadline:
+            time.sleep(10)
+            done = []
+            for label, (report_id, purch_col, sales_col) in pending.items():
+                sr = _req.get(f"{api_base}/reporting/reports/{report_id}", headers=base_headers, timeout=30)
+                sr.raise_for_status()
+                data = sr.json()
+                status = data.get("status", "").upper()
+                if status == "COMPLETED":
+                    download_urls[label] = (data["url"], purch_col, sales_col)
+                    done.append(label)
+                elif status in ("FAILURE", "FAILED", "CANCELLED"):
+                    print(f"  [Amazon Ads] {label} report {status}")
+                    done.append(label)
+            for label in done:
+                del pending[label]
+
+        # Step 4: Download and parse
+        daily: Dict[str, Dict] = {}
+        start_iso, end_iso = start.isoformat(), end.isoformat()
+        for label, (url, purch_col, sales_col) in download_urls.items():
+            dl = _req.get(url, timeout=120)
+            dl.raise_for_status()
             try:
-                with _gzip.open(filepath) as f:
-                    rows = json.load(f)
-                for row in rows:
-                    ds = str(row.get("date", ""))[:10]
-                    if not ds or ds < start_iso or ds > end_iso:
-                        continue
-                    if ds not in daily:
-                        daily[ds] = {"amz_ad_spend": 0.0, "amz_ad_sales": 0.0,
-                                     "amz_impressions": 0, "amz_purchases": 0}
-                    daily[ds]["amz_ad_spend"]    += float(row.get(spend_key, 0) or 0)
-                    daily[ds]["amz_ad_sales"]    += float(row.get(sales_key, 0) or 0)
-                    daily[ds]["amz_impressions"] += int(row.get("impressions", 0) or 0)
-                    daily[ds]["amz_purchases"]   += int(row.get(purch_key, 0) or 0)
-            except Exception as e:
-                print(f"[Amazon Ads Daily] Error reading {filename}: {e}")
+                with _gzip.GzipFile(fileobj=_io.BytesIO(dl.content)) as gz:
+                    content = gz.read().decode("utf-8")
+            except Exception:
+                content = dl.content.decode("utf-8")
+            try:
+                rows = json.loads(content)
+            except json.JSONDecodeError:
+                rows = [json.loads(line) for line in content.splitlines() if line.strip()]
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                ds = str(row.get("date", ""))[:10]
+                if not ds or ds < start_iso or ds > end_iso:
+                    continue
+                if ds not in daily:
+                    daily[ds] = {"amz_ad_spend": 0.0, "amz_ad_sales": 0.0,
+                                 "amz_impressions": 0, "amz_purchases": 0}
+                daily[ds]["amz_ad_spend"]    += float(row.get("cost", 0) or 0)
+                daily[ds]["amz_ad_sales"]    += float(row.get(sales_col, 0) or 0) if sales_col else 0
+                daily[ds]["amz_impressions"] += int(row.get("impressions", 0) or 0)
+                daily[ds]["amz_purchases"]   += int(row.get(purch_col, 0) or 0) if purch_col else 0
 
-    for d in daily.values():
-        d["amz_ad_spend"] = round(d["amz_ad_spend"], 2)
-        d["amz_ad_sales"] = round(d["amz_ad_sales"], 2)
+        for d in daily.values():
+            d["amz_ad_spend"] = round(d["amz_ad_spend"], 2)
+            d["amz_ad_sales"] = round(d["amz_ad_sales"], 2)
 
-    print(f"[Amazon Ads Daily] Got {len(daily)} days of data.")
-    return daily
+        print(f"[Amazon Ads] Got {len(daily)} days of data.")
+        return daily
+
+    except Exception as e:
+        print(f"[Amazon Ads] Error — skipping: {e}")
+        return {}
 
 
 # ============================================================
@@ -2217,7 +2293,7 @@ def main():
         ga4     = fetch_ga4(start, end)
         msads   = fetch_msads(start, end)
         reddit  = fetch_reddit(start, end)
-        amz_ads_daily = read_amazon_ads_daily(start, end)
+        amz_ads_daily = fetch_amazon_ads(start, end)
 
         new_daily       = merge_daily(start, end, shopify, meta, google, ga4, msads, reddit, amz_ads_daily)
         new_products    = fetch_shopify_products(start, end, batch_by_month=True)
@@ -2240,7 +2316,7 @@ def main():
     ga4     = fetch_ga4(start, end)
     msads   = fetch_msads(start, end)
     reddit  = fetch_reddit(start, end)
-    amz_ads_daily = read_amazon_ads_daily(history_start(args.months), dt.date.today())
+    amz_ads_daily = fetch_amazon_ads(start, end)
 
     refreshed          = merge_daily(start, end, shopify, meta, google, ga4, msads, reddit, amz_ads_daily)
     refreshed_products = fetch_shopify_products(start, end)
