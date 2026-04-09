@@ -7,3 +7,4 @@ bingads
 pydantic
 python-dateutil
 python-dotenv
+python-amazon-sp-api

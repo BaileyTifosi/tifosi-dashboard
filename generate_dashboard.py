@@ -122,6 +122,22 @@ AMAZON_ADS_CLIENT_SECRET = _e("AMAZON_ADS_CLIENT_SECRET")
 AMAZON_ADS_REFRESH_TOKEN = _e("AMAZON_ADS_REFRESH_TOKEN")
 AMAZON_ADS_PROFILE_ID    = _e("AMAZON_ADS_PROFILE_ID")
 
+# --- Amazon Seller Central (SP-API) ---
+AMAZON_SP_REFRESH_TOKEN    = _e("AMAZON_SP_REFRESH_TOKEN")
+AMAZON_SP_LWA_APP_ID       = _e("AMAZON_SP_LWA_APP_ID")
+AMAZON_SP_LWA_CLIENT_SECRET= _e("AMAZON_SP_LWA_CLIENT_SECRET")
+AMAZON_SP_AWS_ACCESS_KEY   = _e("AMAZON_SP_AWS_ACCESS_KEY")
+AMAZON_SP_AWS_SECRET_KEY   = _e("AMAZON_SP_AWS_SECRET_KEY")
+AMAZON_SP_CREDENTIALS: dict = {
+    "refresh_token":    AMAZON_SP_REFRESH_TOKEN,
+    "lwa_app_id":       AMAZON_SP_LWA_APP_ID,
+    "lwa_client_secret":AMAZON_SP_LWA_CLIENT_SECRET,
+    "aws_access_key":   AMAZON_SP_AWS_ACCESS_KEY,
+    "aws_secret_key":   AMAZON_SP_AWS_SECRET_KEY,
+}
+AMAZON_SP_MARKETPLACE_ID = "ATVPDKIKX0DER"  # US
+AMAZON_SP_TIMEZONE       = "US/Pacific"
+
 # ============================================================
 # OUTPUT PATHS / SETTINGS
 # ============================================================
@@ -1160,6 +1176,9 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 def fetch_amazon_sc_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM: {amz_sc_sales, amz_sc_orders, amz_sc_units}} — FBA/DTC only."""
+    if not AMAZON_SP_REFRESH_TOKEN or not AMAZON_SP_LWA_APP_ID:
+        print("[Amazon SC] Credentials not set — skipping.")
+        return {}
     try:
         from sp_api.api import Sales
         from sp_api.base import Marketplaces, SellingApiException
