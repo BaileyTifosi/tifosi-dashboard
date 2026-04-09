@@ -66,9 +66,10 @@ GOOGLEADS_CUSTOMER_ID         = _e("GOOGLEADS_CUSTOMER_ID")
 # --- GA4 ---
 GA4_PROPERTY_ID = _e("GA4_PROPERTY_ID")
 _ga4_json_str   = os.environ.get("GA4_SERVICE_ACCOUNT_JSON", "")
+GA4_SERVICE_ACCOUNT_INFO: dict = {}  # used directly via from_service_account_info()
 if _ga4_json_str:
     # GitHub Secrets sometimes expands \n sequences to real newlines inside the
-    # private key, making the JSON invalid. Try raw first, then fix newlines.
+    # private key, making the JSON invalid. Try raw first, then re-escape newlines.
     _ga4_info = None
     for _attempt in [_ga4_json_str, _ga4_json_str.replace('\r\n', '\\n').replace('\n', '\\n')]:
         try:
@@ -77,15 +78,13 @@ if _ga4_json_str:
         except json.JSONDecodeError:
             continue
     if _ga4_info:
-        _ga4_tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
-        json.dump(_ga4_info, _ga4_tmp)
-        _ga4_tmp.close()
-        GA4_SERVICE_ACCOUNT_JSON = _ga4_tmp.name
+        # Ensure private_key newlines are real newlines (not literal \n strings)
+        if "private_key" in _ga4_info:
+            _ga4_info["private_key"] = _ga4_info["private_key"].replace("\\n", "\n")
+        GA4_SERVICE_ACCOUNT_INFO = _ga4_info
     else:
-        GA4_SERVICE_ACCOUNT_JSON = ""
         print("[config] GA4_SERVICE_ACCOUNT_JSON could not be parsed — GA4 will show N/A")
 else:
-    GA4_SERVICE_ACCOUNT_JSON = ""
     print("[config] GA4_SERVICE_ACCOUNT_JSON not set — GA4 will show N/A")
 
 # --- Microsoft Ads ---
@@ -527,7 +526,7 @@ def fetch_google(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 def fetch_ga4(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM-DD: {users, sessions}}"""
-    if not GA4_SERVICE_ACCOUNT_JSON or not GA4_PROPERTY_ID:
+    if not GA4_SERVICE_ACCOUNT_INFO or not GA4_PROPERTY_ID:
         print("[GA4] Credentials not set — skipping.")
         return {}
     print(f"[GA4] Fetching daily users + sessions ({start} to {end})...")
@@ -540,8 +539,8 @@ def fetch_ga4(start: dt.date, end: dt.date) -> Dict[str, Dict]:
         return {}
 
     try:
-        creds = service_account.Credentials.from_service_account_file(
-            GA4_SERVICE_ACCOUNT_JSON,
+        creds = service_account.Credentials.from_service_account_info(
+            GA4_SERVICE_ACCOUNT_INFO,
             scopes=["https://www.googleapis.com/auth/analytics.readonly"],
         )
         ga4_client = BetaAnalyticsDataClient(credentials=creds)
@@ -571,7 +570,7 @@ def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     """Returns {YYYY-MM: {users, sessions}} — period-level totals per calendar month.
     Fetching month-by-month avoids GA4 sampling that occurs on long date ranges,
     and gives exact numbers matching what Whatagraph pulls."""
-    if not GA4_SERVICE_ACCOUNT_JSON or not GA4_PROPERTY_ID:
+    if not GA4_SERVICE_ACCOUNT_INFO or not GA4_PROPERTY_ID:
         print("[GA4] Credentials not set — skipping monthly.")
         return {}
     print(f"[GA4] Fetching monthly period totals ({start} to {end})...")
@@ -583,8 +582,8 @@ def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
         return {}
 
     try:
-        creds = service_account.Credentials.from_service_account_file(
-            GA4_SERVICE_ACCOUNT_JSON,
+        creds = service_account.Credentials.from_service_account_info(
+            GA4_SERVICE_ACCOUNT_INFO,
             scopes=["https://www.googleapis.com/auth/analytics.readonly"],
         )
     except Exception as e:
