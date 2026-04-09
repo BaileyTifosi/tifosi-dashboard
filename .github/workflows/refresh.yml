@@ -3,7 +3,11 @@ name: Dashboard Refresh
 on:
   workflow_dispatch:
   schedule:
-    - cron: '5 17 * * *'
+    - cron: '0 12 * * *'
+
+concurrency:
+  group: dashboard-refresh
+  cancel-in-progress: false
 
 jobs:
   refresh:
@@ -58,12 +62,12 @@ jobs:
           REDDIT_BUSINESS_ID: ${{ secrets.REDDIT_BUSINESS_ID }}
           REDDIT_REFRESH_TOKEN: ${{ secrets.REDDIT_REFRESH_TOKEN }}
           AMAZON_ADS_CLIENT_ID: ${{ secrets.AMAZON_ADS_CLIENT_ID }}
-          AMAZON_ADS_CLIENT_SECRET: ${{secrets.AMAZON_ADS_CLIENT_SECRET }}
-          AMAZON_ADS_REFRESH_TOKEN: ${{secrets.AMAZON_ADS_REFRESH_TOKEN }}
+          AMAZON_ADS_CLIENT_SECRET: ${{ secrets.AMAZON_ADS_CLIENT_SECRET }}
+          AMAZON_ADS_REFRESH_TOKEN: ${{ secrets.AMAZON_ADS_REFRESH_TOKEN }}
           AMAZON_ADS_PROFILE_ID: ${{ secrets.AMAZON_ADS_PROFILE_ID }}
           AMAZON_SP_REFRESH_TOKEN: ${{ secrets.AMAZON_SP_REFRESH_TOKEN }}
           AMAZON_SP_LWA_APP_ID: ${{ secrets.AMAZON_SP_LWA_APP_ID }}
-          AMAZON_SP_LWA_CLIENT_SECRET: ${{secrets.AMAZON_SP_LWA_CLIENT_SECRET }}
+          AMAZON_SP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_SP_LWA_CLIENT_SECRET }}
           AMAZON_SP_AWS_ACCESS_KEY: ${{ secrets.AMAZON_SP_AWS_ACCESS_KEY }}
           AMAZON_SP_AWS_SECRET_KEY: ${{ secrets.AMAZON_SP_AWS_SECRET_KEY }}
         run: python generate_dashboard.py
@@ -74,4 +78,5 @@ jobs:
           git config user.name "GitHub Actions"
           git add index.html .cache/dashboard_cache.json || true
           git diff --staged --quiet || git commit -m "Auto-update dashboard $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
           git push
