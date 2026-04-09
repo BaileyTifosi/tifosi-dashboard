@@ -5,4 +5,5 @@ google-analytics-data
 google-auth
 bingads
 pydantic
+python-dateutil
 python-dotenv
