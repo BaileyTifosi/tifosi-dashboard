@@ -1016,7 +1016,7 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
         print("[Amazon Ads] Credentials not set — skipping.")
         return {}
     try:
-        import gzip as _gzip, io as _io
+        import requests as _req, gzip as _gzip, io as _io
 
         # Step 1: Get access token
         tok_r = _req.post(
