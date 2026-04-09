@@ -52,6 +52,11 @@ jobs:
           MSADS_ACCOUNT_ID: ${{ secrets.MSADS_ACCOUNT_ID }}
           MSADS_REFRESH_TOKEN: ${{ secrets.MSADS_REFRESH_TOKEN }}
           KLAVIYO_PRIVATE_API_KEY: ${{ secrets.KLAVIYO_PRIVATE_API_KEY }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_AD_ACCOUNT_ID: ${{ secrets.REDDIT_AD_ACCOUNT_ID }}
+          REDDIT_BUSINESS_ID: ${{ secrets.REDDIT_BUSINESS_ID }}
+          REDDIT_REFRESH_TOKEN: ${{ secrets.REDDIT_REFRESH_TOKEN }}
         run: python generate_dashboard.py
 
       - name: Commit and push updated dashboard
