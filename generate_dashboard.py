@@ -1069,11 +1069,15 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
                 },
             }
             r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
-            if r.status_code == 422:
-                # Some accounts don't support specific purchase/sales columns — try without them
+            if r.status_code in (400, 422):
+                print(f"  [Amazon Ads] {label} create error {r.status_code}: {r.text[:400]}")
+                # Retry with minimal columns (spend + impressions only)
                 body["configuration"]["columns"] = ["date", "impressions", "cost"]
                 r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
                 purch_col, sales_col = None, None
+            if not r.ok:
+                print(f"  [Amazon Ads] {label} create failed {r.status_code}: {r.text[:400]}")
+                continue
             r.raise_for_status()
             report_id = r.json().get("reportId")
             if report_id:
