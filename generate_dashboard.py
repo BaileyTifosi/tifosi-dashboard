@@ -911,79 +911,25 @@ def fetch_reddit(start: dt.date, end: dt.date) -> Dict[str, Dict]:
             return {k: sum(int(m.get(k, 0) or 0) for m in metrics) for k in metrics[0]}
         return metrics[0]
 
-    # Step 1: pull raw daily values (used only for within-month distribution)
-    daily_raw: Dict[str, dict] = {}
+    # Reddit API ends_at is INCLUSIVE — querying "day X to day X+1" returns
+    # data for both X and X+1, causing double-counting.  Using ends_at = starts_at
+    # (same-day query) returns exactly one day of data at face value (/1e6).
+    out: Dict[str, Dict] = {}
     current = start
     while current <= end:
-        next_day = current + dt.timedelta(days=1)
         try:
-            m = _report(current.isoformat() + "T00:00:00Z",
-                        next_day.isoformat() + "T00:00:00Z")
+            ts = current.isoformat() + "T00:00:00Z"
+            m = _report(ts, ts)
             if m and int(m.get("spend", 0) or 0) > 0:
-                daily_raw[current.isoformat()] = m
+                out[current.isoformat()] = {
+                    "spend":          round(int(m.get("spend", 0) or 0) / 1_000_000, 2),
+                    "clicks":         int(m.get("clicks", 0) or 0),
+                    "purchase_value": round(int(m.get("conversion_purchase_total_value", 0) or 0) / 100, 2),
+                }
         except Exception as e:
             print(f"  [Reddit] Error {current}: {e}")
-        current = next_day
+        current += dt.timedelta(days=1)
         time.sleep(0.3)
-
-    # Step 2: pull one monthly total per calendar month and rescale daily values
-    # so each month's sum matches the monthly API figure exactly.
-    # The monthly aggregate matches the Reddit Ads UI / Whatagraph when fetched
-    # close to month-end (before attribution settles ~2x over several weeks).
-    #
-    # IMPORTANT: only apply rescaling when we have ALL days of the month.
-    # For partial months (normal 14-day daily run) the monthly total >> partial
-    # daily sum, which would wildly over-inflate per-day values.  Fall back to
-    # raw / 2,000,000 for partial months — that gives ~99% accuracy for settled
-    # data and a reasonable estimate for fresh data.
-    out: Dict[str, Dict] = {}
-    for ms, me in iter_months(start, end):
-        ym = ms.strftime("%Y-%m")
-        month_days = {ds: v for ds, v in daily_raw.items() if ds.startswith(ym)}
-        if not month_days:
-            continue
-
-        expected_days = (me - ms).days + 1
-        is_complete = len(month_days) == expected_days
-
-        if is_complete:
-            next_month = me + dt.timedelta(days=1)
-            try:
-                time.sleep(0.3)
-                mm = _report(ms.isoformat() + "T00:00:00Z",
-                             next_month.isoformat() + "T00:00:00Z")
-            except Exception as e:
-                print(f"  [Reddit] Monthly total error {ym}: {e}")
-                mm = None
-        else:
-            mm = None  # partial month — skip rescaling
-
-        if mm:
-            monthly_spend_raw = int(mm.get("spend", 0) or 0)
-            monthly_rev_raw   = int(mm.get("conversion_purchase_total_value", 0) or 0)
-            monthly_clicks    = int(mm.get("clicks", 0) or 0)
-            daily_spend_sum   = sum(int(v.get("spend", 0) or 0) for v in month_days.values())
-            daily_rev_sum     = sum(int(v.get("conversion_purchase_total_value", 0) or 0) for v in month_days.values())
-            daily_clicks_sum  = sum(int(v.get("clicks", 0) or 0) for v in month_days.values())
-            spend_scale = monthly_spend_raw / daily_spend_sum if daily_spend_sum else 1.0
-            rev_scale   = monthly_rev_raw   / daily_rev_sum   if daily_rev_sum   else 1.0
-            monthly_dollars = round(monthly_spend_raw / 1_000_000, 2)
-            print(f"  [Reddit] {ym}: monthly=${monthly_dollars:.2f}, scale={spend_scale:.3f}")
-            for ds, v in month_days.items():
-                spend  = round(int(v.get("spend", 0) or 0) / 1_000_000 * spend_scale, 2)
-                rev    = round(int(v.get("conversion_purchase_total_value", 0) or 0) / 100 * rev_scale, 2)
-                clicks = round(monthly_clicks * int(v.get("clicks", 0) or 0) / daily_clicks_sum) if daily_clicks_sum else int(v.get("clicks", 0) or 0)
-                out[ds] = {"spend": spend, "clicks": clicks, "purchase_value": rev}
-        else:
-            # Partial month or no monthly total: use raw / 2,000,000.
-            # Reddit API SPEND grows ~2x as attribution settles; /2e6 matches
-            # Whatagraph to ~1% for settled months.
-            for ds, v in month_days.items():
-                out[ds] = {
-                    "spend":          round(int(v.get("spend", 0) or 0) / 2_000_000, 2),
-                    "clicks":         int(v.get("clicks", 0) or 0),
-                    "purchase_value": round(int(v.get("conversion_purchase_total_value", 0) or 0) / 100, 2),
-                }
 
     print(f"  Got {len(out)} days of Reddit data.")
     return out
