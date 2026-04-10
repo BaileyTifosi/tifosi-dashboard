@@ -193,25 +193,34 @@ def load_cache() -> Optional[Dict]:
     except Exception as e:
         print(f"[cache] Could not load: {e}")
         return None
-    # Merge amazon_ads_history.json into daily cache for any missing amz_ fields.
-    # This ensures historical Amazon Ads data survives actions/cache overwrites.
+    # Merge amazon_ads_history.json into cache for any missing/zeroed historical fields.
+    # Covers: amz_*, ga4_users/sessions, bing_*, reddit_*, and monthly_ga4.
+    # This ensures backfilled data survives actions/cache overwrites on every run.
     if os.path.exists(_AMZ_HISTORY_FILE):
         try:
             with open(_AMZ_HISTORY_FILE, "r", encoding="utf-8") as f:
-                amz_history = json.load(f)
+                history = json.load(f)
+            # Merge daily fields
             daily = cache.setdefault("daily", {})
-            merged = 0
-            for date, amz_fields in amz_history.items():
+            daily_merged = 0
+            for date, fields in history.get("daily", {}).items():
                 if date not in daily:
                     daily[date] = {}
-                for k, v in amz_fields.items():
-                    if k not in daily[date] or daily[date][k] is None:
+                for k, v in fields.items():
+                    if not daily[date].get(k):  # missing or zero
                         daily[date][k] = v
-                        merged += 1
-            if merged:
-                print(f"[cache] Merged {merged} amz_ fields from amazon_ads_history.json")
+                        daily_merged += 1
+            # Merge monthly_ga4
+            ga4_merged = 0
+            existing_ga4 = cache.setdefault("monthly_ga4", {})
+            for ym, v in history.get("monthly_ga4", {}).items():
+                if ym not in existing_ga4:
+                    existing_ga4[ym] = v
+                    ga4_merged += 1
+            if daily_merged or ga4_merged:
+                print(f"[cache] History merge: {daily_merged} daily fields, {ga4_merged} monthly_ga4 months")
         except Exception as e:
-            print(f"[cache] Could not merge amazon_ads_history: {e}")
+            print(f"[cache] Could not merge history: {e}")
     return cache
 
 def save_cache(cache: Dict) -> None:
