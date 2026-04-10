@@ -22,6 +22,7 @@ import time
 import datetime as dt
 from calendar import monthrange
 from typing import Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 
 # ============================================================
@@ -2270,10 +2271,9 @@ def generate_html(daily: Dict[str, Dict], products: Dict[str, Dict], output: str
     data_clean     = {ds: clean(v) for ds, v in daily.items()}
     products_clean = {ds: clean(v) for ds, v in products.items()}
     days_sorted    = sorted(data_clean.keys(), reverse=True)
-    from zoneinfo import ZoneInfo
     now            = dt.datetime.now(ZoneInfo("America/New_York"))
-    generated_at   = now.strftime("%B %d, %Y at %I:%M %p EST")
-    generated_iso  = now.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    generated_at   = now.strftime("%B %d, %Y at %I:%M %p ET")
+    generated_iso  = now.isoformat(timespec="seconds")  # includes UTC offset so JS new Date() parses correctly
     reach_clean       = monthly_meta_reach or {}
     ga4_clean         = monthly_ga4 or {}
     klaviyo_clean     = monthly_klaviyo or {}
