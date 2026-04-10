@@ -200,16 +200,30 @@ def load_cache() -> Optional[Dict]:
         try:
             with open(_AMZ_HISTORY_FILE, "r", encoding="utf-8") as f:
                 history = json.load(f)
-            # Merge daily fields
+            # Merge daily fields.
+            # For dates older than 30 days: history file is authoritative — always
+            # overwrites the cache. This ensures manual corrections survive
+            # actions/cache restores which may bring back stale/wrong values.
+            # For recent dates: only fill gaps (let live API data take precedence).
             daily = cache.setdefault("daily", {})
             daily_merged = 0
+            cutoff = (dt.date.today() - dt.timedelta(days=30)).isoformat()
             for date, fields in history.get("daily", {}).items():
                 if date not in daily:
                     daily[date] = {}
                 for k, v in fields.items():
-                    if not daily[date].get(k):  # missing or zero
-                        daily[date][k] = v
-                        daily_merged += 1
+                    if v is None:
+                        continue
+                    if date < cutoff:
+                        # Historical data: history file wins
+                        if daily[date].get(k) != v:
+                            daily[date][k] = v
+                            daily_merged += 1
+                    else:
+                        # Recent data: only fill gaps
+                        if not daily[date].get(k):
+                            daily[date][k] = v
+                            daily_merged += 1
             # Merge monthly_ga4
             ga4_merged = 0
             existing_ga4 = cache.setdefault("monthly_ga4", {})
@@ -900,10 +914,11 @@ def fetch_reddit(start: dt.date, end: dt.date) -> Dict[str, Dict]:
             r.raise_for_status()
             metrics = (r.json().get("data") or {}).get("metrics") or []
             if metrics:
-                m = metrics[0]
-                spend    = round(int(m.get("spend", 0) or 0) / 1_000_000, 2)
-                clicks   = int(m.get("clicks", 0) or 0)
-                rev      = round(int(m.get("conversion_purchase_total_value", 0) or 0) / 100, 2)
+                if len(metrics) > 1:
+                    print(f"  [Reddit] WARNING: {current} returned {len(metrics)} metric rows — summing all")
+                spend  = round(sum(int(m.get("spend", 0) or 0) for m in metrics) / 1_000_000, 2)
+                clicks = sum(int(m.get("clicks", 0) or 0) for m in metrics)
+                rev    = round(sum(int(m.get("conversion_purchase_total_value", 0) or 0) for m in metrics) / 100, 2)
                 out[current.isoformat()] = {"spend": spend, "clicks": clicks, "purchase_value": rev}
         except Exception as e:
             print(f"  [Reddit] Error {current}: {e}")
