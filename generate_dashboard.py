@@ -1602,7 +1602,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 
 <script>
-const GENERATED_AT = new Date("__GENERATED_AT_ISO__Z");
+const GENERATED_AT = new Date("__GENERATED_AT_ISO__");
 (function() {
   function tick() {
     const hrs = (Date.now() - GENERATED_AT) / 3600000;
@@ -1618,7 +1618,7 @@ const GENERATED_AT = new Date("__GENERATED_AT_ISO__Z");
       color = "#FCA5A5";
     }
     const etTime = GENERATED_AT.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit", timeZone:"America/New_York"});
-    el.textContent = "· refreshed at " + etTime + " EST (" + age + ")";
+    el.textContent = "· refreshed at " + etTime + " ET (" + age + ")";
     el.style.cssText = `color:${color};font-weight:600;`;
   }
   tick();
