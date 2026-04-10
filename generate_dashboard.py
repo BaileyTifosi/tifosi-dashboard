@@ -182,15 +182,37 @@ def iter_months(start: dt.date, end: dt.date):
 # CACHE
 # ============================================================
 
+_AMZ_HISTORY_FILE = os.path.join(_HERE, "amazon_ads_history.json")
+
 def load_cache() -> Optional[Dict]:
     if not os.path.exists(CACHE_FILE):
         return None
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            cache = json.load(f)
     except Exception as e:
         print(f"[cache] Could not load: {e}")
         return None
+    # Merge amazon_ads_history.json into daily cache for any missing amz_ fields.
+    # This ensures historical Amazon Ads data survives actions/cache overwrites.
+    if os.path.exists(_AMZ_HISTORY_FILE):
+        try:
+            with open(_AMZ_HISTORY_FILE, "r", encoding="utf-8") as f:
+                amz_history = json.load(f)
+            daily = cache.setdefault("daily", {})
+            merged = 0
+            for date, amz_fields in amz_history.items():
+                if date not in daily:
+                    daily[date] = {}
+                for k, v in amz_fields.items():
+                    if k not in daily[date] or daily[date][k] is None:
+                        daily[date][k] = v
+                        merged += 1
+            if merged:
+                print(f"[cache] Merged {merged} amz_ fields from amazon_ads_history.json")
+        except Exception as e:
+            print(f"[cache] Could not merge amazon_ads_history: {e}")
+    return cache
 
 def save_cache(cache: Dict) -> None:
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
