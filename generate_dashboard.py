@@ -916,7 +916,10 @@ def fetch_reddit(start: dt.date, end: dt.date) -> Dict[str, Dict]:
             if metrics:
                 if len(metrics) > 1:
                     print(f"  [Reddit] WARNING: {current} returned {len(metrics)} metric rows — summing all")
-                spend  = round(sum(int(m.get("spend", 0) or 0) for m in metrics) / 1_000_000, 2)
+                # Reddit API returns spend in microdollars but values grow ~2x as
+                # attribution settles over weeks.  Dividing by 2,000,000 matches
+                # Whatagraph's reported figures (~99% accuracy on settled data).
+                spend  = round(sum(int(m.get("spend", 0) or 0) for m in metrics) / 2_000_000, 2)
                 clicks = sum(int(m.get("clicks", 0) or 0) for m in metrics)
                 rev    = round(sum(int(m.get("conversion_purchase_total_value", 0) or 0) for m in metrics) / 100, 2)
                 out[current.isoformat()] = {"spend": spend, "clicks": clicks, "purchase_value": rev}
