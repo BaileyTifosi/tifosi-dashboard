@@ -1079,66 +1079,54 @@ def fetch_klaviyo_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 # AMAZON ADS
 # ============================================================
 
-def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
-    """Fetch Amazon Ads (SP+SB+SD) daily data via Advertising API v3.
-    Returns {YYYY-MM-DD: {amz_ad_spend, amz_ad_sales, amz_impressions, amz_purchases}}.
-    Automatically chunks large date ranges into 90-day windows."""
+_AMZ_REPORT_CONFIGS = [
+    ("SP", "SPONSORED_PRODUCTS", "spCampaigns",
+     ["date", "impressions", "cost", "purchases7d",     "sales7d"],
+     "purchases7d",     "sales7d"),
+    ("SB", "SPONSORED_BRANDS",   "sbCampaigns",
+     ["date", "impressions", "cost", "purchases",       "sales"],
+     "purchases",       "sales"),
+    ("SD", "SPONSORED_DISPLAY",  "sdCampaigns",
+     ["date", "impressions", "cost", "purchasesClicks", "salesClicks"],
+     "purchasesClicks", "salesClicks"),
+]
+
+
+def _amz_access_token() -> str:
+    import requests as _req
+    tok_r = _req.post(
+        "https://api.amazon.com/auth/o2/token",
+        data={
+            "grant_type":    "refresh_token",
+            "refresh_token": AMAZON_ADS_REFRESH_TOKEN,
+            "client_id":     AMAZON_ADS_CLIENT_ID,
+            "client_secret": AMAZON_ADS_CLIENT_SECRET,
+        },
+        timeout=30,
+    )
+    tok_r.raise_for_status()
+    return tok_r.json()["access_token"]
+
+
+def create_amazon_ads_reports(start: dt.date, end: dt.date) -> List[Dict]:
+    """Create Amazon Ads async reports for SP/SB/SD and return a list of pending report specs.
+    Does NOT wait for completion — call download_amazon_ads_reports() on the next run.
+    Returns list of {reportId, label, purch_col, sales_col, start, end}."""
     if not AMAZON_ADS_CLIENT_ID or not AMAZON_ADS_REFRESH_TOKEN:
-        print("[Amazon Ads] Credentials not set — skipping.")
-        return {}
-    # Chunk into 90-day windows for large date ranges
-    if (end - start).days > 90:
-        print(f"[Amazon Ads] Date range {(end-start).days} days — chunking into 90-day windows...")
-        merged: Dict[str, Dict] = {}
-        chunk_start = start
-        while chunk_start <= end:
-            chunk_end = min(chunk_start + dt.timedelta(days=89), end)
-            chunk_data = fetch_amazon_ads(chunk_start, chunk_end)
-            merged.update(chunk_data)
-            chunk_start = chunk_end + dt.timedelta(days=1)
-            time.sleep(2)  # avoid throttling between chunks
-        print(f"[Amazon Ads] Got {len(merged)} days total across all chunks.")
-        return merged
+        return []
     try:
-        import requests as _req, gzip as _gzip, io as _io
-
-        # Step 1: Get access token
-        tok_r = _req.post(
-            "https://api.amazon.com/auth/o2/token",
-            data={
-                "grant_type":    "refresh_token",
-                "refresh_token": AMAZON_ADS_REFRESH_TOKEN,
-                "client_id":     AMAZON_ADS_CLIENT_ID,
-                "client_secret": AMAZON_ADS_CLIENT_SECRET,
-            },
-            timeout=30,
-        )
-        tok_r.raise_for_status()
-        access_token = tok_r.json()["access_token"]
-
-        base_headers = {
-            "Authorization":                    f"Bearer {access_token}",
-            "Amazon-Advertising-API-ClientId":  AMAZON_ADS_CLIENT_ID,
-            "Amazon-Advertising-API-Scope":     AMAZON_ADS_PROFILE_ID,
-        }
+        import requests as _req, re as _re
+        access_token = _amz_access_token()
         api_base = "https://advertising-api.amazon.com"
-
-        report_configs = [
-            ("SP", "SPONSORED_PRODUCTS", "spCampaigns",
-             ["date", "impressions", "cost", "purchases7d",      "sales7d"],
-             "purchases7d",      "sales7d"),
-            ("SB", "SPONSORED_BRANDS",   "sbCampaigns",
-             ["date", "impressions", "cost", "purchases",        "sales"],
-             "purchases",        "sales"),
-            ("SD", "SPONSORED_DISPLAY",  "sdCampaigns",
-             ["date", "impressions", "cost", "purchasesClicks",  "salesClicks"],
-             "purchasesClicks",  "salesClicks"),
-        ]
-
-        # Step 2: Create all 3 reports
-        pending: Dict[str, tuple] = {}
-        create_headers = {**base_headers, "Content-Type": "application/vnd.createasyncreportrequest.v3+json"}
-        for label, ad_product, report_type_id, columns, purch_col, sales_col in report_configs:
+        base_headers = {
+            "Authorization":                   f"Bearer {access_token}",
+            "Amazon-Advertising-API-ClientId": AMAZON_ADS_CLIENT_ID,
+            "Amazon-Advertising-API-Scope":    AMAZON_ADS_PROFILE_ID,
+        }
+        create_headers = {**base_headers,
+                          "Content-Type": "application/vnd.createasyncreportrequest.v3+json"}
+        pending = []
+        for label, ad_product, report_type_id, columns, purch_col, sales_col in _AMZ_REPORT_CONFIGS:
             body = {
                 "name": f"Dashboard {label} {start} {end}",
                 "startDate": start.isoformat(),
@@ -1152,87 +1140,164 @@ def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
                     "format":       "GZIP_JSON",
                 },
             }
-            r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
+            r = _req.post(f"{api_base}/reporting/reports", headers=create_headers,
+                          json=body, timeout=30)
             if r.status_code == 425:
-                # Duplicate — extract existing reportId and reuse it
-                import re as _re
-                m = _re.search(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', r.text)
+                m = _re.search(
+                    r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}'
+                    r'-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', r.text)
                 if m:
-                    pending[label] = (m.group(0), purch_col, sales_col)
+                    pending.append({"reportId": m.group(0), "label": label,
+                                    "purch_col": purch_col, "sales_col": sales_col,
+                                    "start": start.isoformat(), "end": end.isoformat()})
+                    print(f"  [Amazon Ads] {label} reusing existing report {m.group(0)}")
                 continue
             if r.status_code == 429:
                 time.sleep(30)
-                r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
-            if r.status_code in (400, 422):
-                print(f"  [Amazon Ads] {label} create error {r.status_code}: {r.text[:400]}")
-                # Retry with minimal columns (spend + impressions only)
-                body["configuration"]["columns"] = ["date", "impressions", "cost"]
-                r = _req.post(f"{api_base}/reporting/reports", headers=create_headers, json=body, timeout=30)
-                purch_col, sales_col = None, None
+                r = _req.post(f"{api_base}/reporting/reports", headers=create_headers,
+                              json=body, timeout=30)
             if not r.ok:
-                print(f"  [Amazon Ads] {label} create failed {r.status_code}: {r.text[:400]}")
+                print(f"  [Amazon Ads] {label} create failed {r.status_code}: {r.text[:200]}")
                 continue
-            r.raise_for_status()
             report_id = r.json().get("reportId")
             if report_id:
-                pending[label] = (report_id, purch_col, sales_col)
+                pending.append({"reportId": report_id, "label": label,
+                                "purch_col": purch_col, "sales_col": sales_col,
+                                "start": start.isoformat(), "end": end.isoformat()})
+                print(f"  [Amazon Ads] {label} report created: {report_id}")
+        return pending
+    except Exception as e:
+        print(f"[Amazon Ads] create_reports error: {e}")
+        return []
 
-        # Step 3: Poll until all reports complete (max 10 min)
-        download_urls: Dict[str, tuple] = {}
-        deadline = time.time() + 600
-        while pending and time.time() < deadline:
-            time.sleep(10)
-            done = []
-            for label, (report_id, purch_col, sales_col) in pending.items():
-                sr = _req.get(f"{api_base}/reporting/reports/{report_id}", headers=base_headers, timeout=30)
-                sr.raise_for_status()
-                data = sr.json()
-                status = data.get("status", "").upper()
-                if status == "COMPLETED":
-                    download_urls[label] = (data["url"], purch_col, sales_col)
-                    done.append(label)
-                elif status in ("FAILURE", "FAILED", "CANCELLED"):
-                    print(f"  [Amazon Ads] {label} report {status}")
-                    done.append(label)
-            for label in done:
-                del pending[label]
 
-        # Step 4: Download and parse
+def download_amazon_ads_reports(pending: List[Dict]) -> Dict[str, Dict]:
+    """Download previously created Amazon Ads reports that are now COMPLETED.
+    pending: list of specs from create_amazon_ads_reports().
+    Returns {YYYY-MM-DD: {amz_ad_spend, amz_ad_sales, amz_impressions, amz_purchases}}
+    and a list of still-pending specs (not yet completed)."""
+    if not pending or not AMAZON_ADS_CLIENT_ID or not AMAZON_ADS_REFRESH_TOKEN:
+        return {}, pending
+    try:
+        import requests as _req, gzip as _gzip, io as _io
+        access_token = _amz_access_token()
+        api_base = "https://advertising-api.amazon.com"
+        base_headers = {
+            "Authorization":                   f"Bearer {access_token}",
+            "Amazon-Advertising-API-ClientId": AMAZON_ADS_CLIENT_ID,
+            "Amazon-Advertising-API-Scope":    AMAZON_ADS_PROFILE_ID,
+        }
         daily: Dict[str, Dict] = {}
-        start_iso, end_iso = start.isoformat(), end.isoformat()
-        for label, (url, purch_col, sales_col) in download_urls.items():
-            dl = _req.get(url, timeout=120)
-            dl.raise_for_status()
-            try:
-                with _gzip.GzipFile(fileobj=_io.BytesIO(dl.content)) as gz:
-                    content = gz.read().decode("utf-8")
-            except Exception:
-                content = dl.content.decode("utf-8")
-            try:
-                rows = json.loads(content)
-            except json.JSONDecodeError:
-                rows = [json.loads(line) for line in content.splitlines() if line.strip()]
-            if not isinstance(rows, list):
-                continue
-            for row in rows:
-                ds = str(row.get("date", ""))[:10]
-                if not ds or ds < start_iso or ds > end_iso:
+        still_pending = []
+        for spec in pending:
+            report_id = spec["reportId"]
+            sr = _req.get(f"{api_base}/reporting/reports/{report_id}",
+                          headers=base_headers, timeout=30)
+            sr.raise_for_status()
+            data = sr.json()
+            status = data.get("status", "").upper()
+            if status == "COMPLETED":
+                url        = data["url"]
+                purch_col  = spec.get("purch_col")
+                sales_col  = spec.get("sales_col")
+                start_iso  = spec.get("start", "")
+                end_iso    = spec.get("end", "")
+                dl = _req.get(url, timeout=120)
+                dl.raise_for_status()
+                try:
+                    with _gzip.GzipFile(fileobj=_io.BytesIO(dl.content)) as gz:
+                        content = gz.read().decode("utf-8")
+                except Exception:
+                    content = dl.content.decode("utf-8")
+                try:
+                    rows = json.loads(content)
+                except json.JSONDecodeError:
+                    rows = [json.loads(line) for line in content.splitlines() if line.strip()]
+                if not isinstance(rows, list):
                     continue
-                if ds not in daily:
-                    daily[ds] = {"amz_ad_spend": 0.0, "amz_ad_sales": 0.0,
-                                 "amz_impressions": 0, "amz_purchases": 0}
-                daily[ds]["amz_ad_spend"]    += float(row.get("cost", 0) or 0)
-                daily[ds]["amz_ad_sales"]    += float(row.get(sales_col, 0) or 0) if sales_col else 0
-                daily[ds]["amz_impressions"] += int(row.get("impressions", 0) or 0)
-                daily[ds]["amz_purchases"]   += int(row.get(purch_col, 0) or 0) if purch_col else 0
-
+                for row in rows:
+                    ds = str(row.get("date", ""))[:10]
+                    if not ds or (start_iso and ds < start_iso) or (end_iso and ds > end_iso):
+                        continue
+                    if ds not in daily:
+                        daily[ds] = {"amz_ad_spend": 0.0, "amz_ad_sales": 0.0,
+                                     "amz_impressions": 0, "amz_purchases": 0}
+                    daily[ds]["amz_ad_spend"]    += float(row.get("cost", 0) or 0)
+                    daily[ds]["amz_ad_sales"]    += float(row.get(sales_col, 0) or 0) if sales_col else 0
+                    daily[ds]["amz_impressions"] += int(row.get("impressions", 0) or 0)
+                    daily[ds]["amz_purchases"]   += int(row.get(purch_col, 0) or 0) if purch_col else 0
+                print(f"  [Amazon Ads] {spec['label']} downloaded ({report_id})")
+            elif status in ("FAILURE", "FAILED", "CANCELLED"):
+                print(f"  [Amazon Ads] {spec['label']} report {status} — dropping")
+            else:
+                still_pending.append(spec)
+                print(f"  [Amazon Ads] {spec['label']} still {status} — will retry next run")
         for d in daily.values():
             d["amz_ad_spend"] = round(d["amz_ad_spend"], 2)
             d["amz_ad_sales"] = round(d["amz_ad_sales"], 2)
+        print(f"[Amazon Ads] Downloaded {len(daily)} days from {len(pending)-len(still_pending)} reports.")
+        return daily, still_pending
+    except Exception as e:
+        print(f"[Amazon Ads] download_reports error: {e}")
+        return {}, pending
 
+
+def fetch_amazon_ads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
+    """Fetch Amazon Ads by creating reports and waiting up to 10 min (history/backfill use).
+    For daily refresh, use create_amazon_ads_reports + download_amazon_ads_reports instead."""
+    if not AMAZON_ADS_CLIENT_ID or not AMAZON_ADS_REFRESH_TOKEN:
+        print("[Amazon Ads] Credentials not set — skipping.")
+        return {}
+    if (end - start).days > 90:
+        print(f"[Amazon Ads] Date range {(end-start).days} days — chunking into 90-day windows...")
+        merged: Dict[str, Dict] = {}
+        chunk_start = start
+        while chunk_start <= end:
+            chunk_end = min(chunk_start + dt.timedelta(days=89), end)
+            chunk_data = fetch_amazon_ads(chunk_start, chunk_end)
+            merged.update(chunk_data)
+            chunk_start = chunk_end + dt.timedelta(days=1)
+            time.sleep(2)
+        print(f"[Amazon Ads] Got {len(merged)} days total across all chunks.")
+        return merged
+    try:
+        pending_specs = create_amazon_ads_reports(start, end)
+        if not pending_specs:
+            return {}
+        # Poll until all complete (max 10 min)
+        import requests as _req
+        access_token = _amz_access_token()
+        api_base = "https://advertising-api.amazon.com"
+        base_headers = {
+            "Authorization":                   f"Bearer {access_token}",
+            "Amazon-Advertising-API-ClientId": AMAZON_ADS_CLIENT_ID,
+            "Amazon-Advertising-API-Scope":    AMAZON_ADS_PROFILE_ID,
+        }
+        deadline = time.time() + 600
+        remaining = list(pending_specs)
+        ready = []
+        while remaining and time.time() < deadline:
+            time.sleep(10)
+            still = []
+            for spec in remaining:
+                sr = _req.get(
+                    f"{api_base}/reporting/reports/{spec['reportId']}",
+                    headers=base_headers, timeout=30)
+                sr.raise_for_status()
+                status = sr.json().get("status", "").upper()
+                if status == "COMPLETED":
+                    ready.append(spec)
+                elif status in ("FAILURE", "FAILED", "CANCELLED"):
+                    print(f"  [Amazon Ads] {spec['label']} {status}")
+                else:
+                    still.append(spec)
+            remaining = still
+        if remaining:
+            print(f"[Amazon Ads] {len(remaining)} reports still pending after timeout — no data.")
+            return {}
+        daily, _ = download_amazon_ads_reports(ready)
         print(f"[Amazon Ads] Got {len(daily)} days of data.")
         return daily
-
     except Exception as e:
         print(f"[Amazon Ads] Error — skipping: {e}")
         return {}
@@ -2412,17 +2477,41 @@ def main():
     start = end - dt.timedelta(days=REFRESH_DAYS - 1)
     print(f"\nRefreshing last {REFRESH_DAYS} days ({start} to {end})...\n")
 
+    # Phase 1: Download any Amazon Ads reports created on the previous run.
+    # Reports are created at end of each run and typically complete within minutes,
+    # so by the next daily run (24h later) they are always ready.
+    existing_pending = []
+    if os.path.exists(_AMZ_HISTORY_FILE):
+        try:
+            with open(_AMZ_HISTORY_FILE) as f:
+                _h = json.load(f)
+            existing_pending = _h.get("pending_amazon_reports", [])
+        except Exception:
+            pass
+    amz_ads_daily: Dict[str, Dict] = {}
+    still_pending: List[Dict] = []
+    if existing_pending:
+        print(f"[Amazon Ads] Found {len(existing_pending)} pending reports from previous run...")
+        amz_ads_daily, still_pending = download_amazon_ads_reports(existing_pending)
+    else:
+        print("[Amazon Ads] No pending reports — skipping download phase.")
+
     shopify = fetch_shopify(start, end, batch_by_month=False)
     meta    = fetch_meta(start, end)
     google  = fetch_google(start, end)
     ga4     = fetch_ga4(start, end)
     msads   = fetch_msads(start, end)
     reddit  = fetch_reddit(start, end)
-    amz_ads_daily = fetch_amazon_ads(start, end)
 
     refreshed          = merge_daily(start, end, shopify, meta, google, ga4, msads, reddit, amz_ads_daily)
     refreshed_products = fetch_shopify_products(start, end)
-    existing_daily.update(refreshed)
+    # Field-level merge: preserve existing fields (e.g. amz_ad_spend from history)
+    # when the current fetch didn't return data for that source.
+    for ds, new_row in refreshed.items():
+        if ds not in existing_daily:
+            existing_daily[ds] = new_row
+        else:
+            existing_daily[ds].update(new_row)
     existing_products.update(refreshed_products)
 
     existing_reach = cache.get("monthly_meta_reach", {}) if cache else {}
@@ -2437,14 +2526,28 @@ def main():
     new_klav       = fetch_klaviyo_monthly(start, end)
     existing_klav.update(new_klav)
 
-    # Merge daily Amazon Ads data into existing daily
-    for ds, az in amz_ads_daily.items():
-        if ds in existing_daily:
-            existing_daily[ds].update(az)
-
     existing_amz_sc = cache.get("monthly_amazon_sc", {}) if cache else {}
     new_amz_sc      = fetch_amazon_sc_monthly(history_start(args.months), dt.date.today())
     existing_amz_sc.update(new_amz_sc)
+
+    # Phase 2: Create new Amazon Ads reports for this run's date range.
+    # They'll be downloaded on tomorrow's run.
+    print(f"\n[Amazon Ads] Creating reports for {start} to {end} (will download tomorrow)...")
+    new_pending = create_amazon_ads_reports(start, end)
+    # Persist pending report specs + any still-incomplete from previous run
+    all_pending = still_pending + new_pending
+    if os.path.exists(_AMZ_HISTORY_FILE):
+        try:
+            with open(_AMZ_HISTORY_FILE) as f:
+                hist = json.load(f)
+        except Exception:
+            hist = {}
+    else:
+        hist = {}
+    hist["pending_amazon_reports"] = all_pending
+    with open(_AMZ_HISTORY_FILE, "w") as f:
+        json.dump(hist, f, indent=2, default=str)
+    print(f"[Amazon Ads] {len(all_pending)} report specs saved to history file.")
 
     save_cache({"daily": existing_daily, "products": existing_products, "monthly_meta_reach": existing_reach, "monthly_ga4": existing_ga4m, "monthly_klaviyo": existing_klav, "monthly_amazon_ads": {}, "monthly_amazon_sc": existing_amz_sc})
     generate_html(existing_daily, existing_products, args.output, existing_reach, existing_ga4m, existing_klav, {}, existing_amz_sc)
