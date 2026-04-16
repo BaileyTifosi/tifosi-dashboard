@@ -1946,8 +1946,10 @@ function aggregate(startD, endD) {
       ym=addMonthsYM(ym,1);
     }
     if (ok) { s.meta_reach=reach; s.ga4_users=users; s.ga4_sessions=sessions; }
+  })();
 
-    // Klaviyo: sum monthly data for full-month ranges
+  // Klaviyo: show for any range starting on the 1st — partial months show MTD totals.
+  if (startD.endsWith("-01")) {
     let kEmails=0, kRev=0, kOk=true;
     let kym=startD.slice(0,7), kendYM=endD.slice(0,7);
     while (kym<=kendYM) {
@@ -1958,7 +1960,7 @@ function aggregate(startD, endD) {
     }
     s.klaviyo_emails_sent = kOk ? kEmails : null;
     s.klaviyo_revenue     = kOk ? kRev    : null;
-  })();
+  }
 
   const radS = REDDIT_ON ? s.reddit_spend : 0;
   s.total_ad_spend = s.meta_spend + s.google_spend + s.bing_spend + radS;
@@ -2332,11 +2334,9 @@ function aggregateAmazon(startD, endD) {
     s.amz_tacos       = tacosDays > 0 ? tacosSum / tacosDays : null;
   }
 
-  // Amazon SC: monthly only (API returns monthly totals)
+  // Amazon SC: monthly only (API returns monthly totals). Show for any range starting on the 1st.
   const startIsFirst = startD.endsWith("-01");
-  const eDate = new Date(endD+"T12:00:00");
-  const endIsLast = eDate.getDate() === new Date(eDate.getFullYear(), eDate.getMonth()+1, 0).getDate();
-  if (startIsFirst && endIsLast) {
+  if (startIsFirst) {
     let scSales=0, scOrders=0, scUnits=0, scOk=true;
     let ym=startD.slice(0,7), endYM=endD.slice(0,7);
     while (ym <= endYM) {
