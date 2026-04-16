@@ -1381,58 +1381,102 @@ def fetch_amazon_sc_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 
 def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str, float]:
-    """Returns {YYYY-MM-DD: gross_sales_amount} — all channels (FBA + FBM), daily granularity.
-    Queries month-by-month to avoid SP-API truncation on long date ranges."""
+    """Penny-perfect daily gross sales via SP-API Reports API (GET_SALES_AND_TRAFFIC_REPORT).
+    One report per calendar year: create → poll → download → parse orderedProductSales."""
     if not AMAZON_SP_REFRESH_TOKEN or not AMAZON_SP_LWA_APP_ID:
-        print("[Amazon SC] Credentials not set — skipping daily gross sales.")
+        print("[Amazon SC] Credentials not set — skipping daily gross sales report.")
         return {}
     try:
-        from sp_api.api import Sales
+        from sp_api.api import Reports
         from sp_api.base import Marketplaces
-        from zoneinfo import ZoneInfo
+        import gzip, time, urllib.request
         from decimal import Decimal
     except ImportError as e:
         print(f"[Amazon SC] Missing library: {e}. Skipping.")
         return {}
 
-    class _Val:
-        def __init__(self, v): self.value = v
-        def __str__(self): return self.value
-
-    sales_client = Sales(credentials=AMAZON_SP_CREDENTIALS, marketplace=Marketplaces.US)
-    tz = ZoneInfo(AMAZON_SP_TIMEZONE)
-    end_iso = end.isoformat()
+    reports_client = Reports(credentials=AMAZON_SP_CREDENTIALS, marketplace=Marketplaces.US)
     out: Dict[str, float] = {}
 
-    for ms, me in iter_months(start, end):
-        next_day    = me + dt.timedelta(days=1)
-        start_local = dt.datetime(ms.year, ms.month, ms.day, 0, 0, 0, tzinfo=tz)
-        end_local   = dt.datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=tz)
-        ym = ms.strftime("%Y-%m")
-        print(f"[Amazon SC] Fetching daily gross sales {ym}...")
+    year = start.year
+    while year <= end.year:
+        chunk_start = max(start, dt.date(year, 1, 1))
+        chunk_end   = min(end,   dt.date(year, 12, 31))
+        print(f"[Amazon SC] Creating daily sales report {chunk_start} to {chunk_end}...")
+
+        # Step 1: Create report
         try:
-            res = sales_client.get_order_metrics(
-                interval=(start_local, end_local),
-                granularity=_Val("Day"),
+            res = reports_client.create_report(
+                reportType='GET_SALES_AND_TRAFFIC_REPORT',
                 marketplaceIds=[AMAZON_SP_MARKETPLACE_ID],
+                dataStartTime=chunk_start.isoformat() + 'T00:00:00Z',
+                dataEndTime=chunk_end.isoformat() + 'T23:59:59Z',
+                reportOptions={'dateGranularity': 'DAY', 'asinGranularity': 'TOTAL'},
             )
-            rows = res.payload or []
+            report_id = (res.payload or {}).get('reportId') or res.payload
         except Exception as e:
-            print(f"[Amazon SC] Error fetching {ym}: {e}")
+            print(f"[Amazon SC] Error creating report for {year}: {e}")
+            year += 1
             continue
 
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            interval_val = row.get("interval", "")
-            date_str = interval_val.split("--")[0][:10] if isinstance(interval_val, str) else ""
-            if len(date_str) < 10 or date_str > end_iso:
-                continue
-            total_sales = row.get("totalSales") or {}
-            amount = float(Decimal(str(total_sales.get("amount", "0") or "0")))
-            out[date_str] = amount
+        # Step 2: Poll until DONE (max 5 min, check every 15s)
+        document_id = None
+        for _ in range(20):
+            time.sleep(15)
+            try:
+                info = reports_client.get_report(report_id)
+                status = (info.payload or {}).get('processingStatus', '')
+                print(f"[Amazon SC] {year} report status: {status}")
+                if status == 'DONE':
+                    document_id = (info.payload or {}).get('reportDocumentId')
+                    break
+                if status in ('FATAL', 'CANCELLED'):
+                    print(f"[Amazon SC] Report {status} — skipping {year}.")
+                    break
+            except Exception as e:
+                print(f"[Amazon SC] Poll error: {e}")
+                break
 
-    print(f"[Amazon SC] Got daily gross sales for {len(out)} days total.")
+        if not document_id:
+            print(f"[Amazon SC] Report for {year} did not complete — skipping.")
+            year += 1
+            continue
+
+        # Step 3: Get download URL
+        try:
+            doc = reports_client.get_report_document(document_id)
+            url         = (doc.payload or {}).get('url', '')
+            compression = (doc.payload or {}).get('compressionAlgorithm', '')
+        except Exception as e:
+            print(f"[Amazon SC] Error getting document: {e}")
+            year += 1
+            continue
+
+        # Step 4: Download and decompress
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                content = r.read()
+            if compression == 'GZIP':
+                content = gzip.decompress(content)
+            data = json.loads(content)
+        except Exception as e:
+            print(f"[Amazon SC] Download error: {e}")
+            year += 1
+            continue
+
+        # Step 5: Parse orderedProductSales per day
+        rows = data.get('salesAndTrafficByDate', [])
+        for row in rows:
+            date_str = row.get('date', '')
+            if not date_str:
+                continue
+            ops = (row.get('salesByDate') or {}).get('orderedProductSales') or {}
+            amount = float(Decimal(str(ops.get('amount', 0) or 0)))
+            out[date_str] = amount
+        print(f"[Amazon SC] Parsed {len(rows)} days for {year}.")
+        year += 1
+
+    print(f"[Amazon SC] Total: {len(out)} days of penny-perfect gross sales.")
     return out
 
 
