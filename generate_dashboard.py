@@ -2431,6 +2431,8 @@ def main():
                         help="Fetch full history from scratch (required on first run)")
     parser.add_argument("--cache-only", action="store_true",
                         help="Regenerate HTML from cache without any API calls")
+    parser.add_argument("--create-reports-only", action="store_true",
+                        help="Create Amazon Ads async reports and save IDs to history file — no dashboard generation")
     parser.add_argument("--output",     default=OUTPUT_HTML, help="Output HTML path")
     args = parser.parse_args()
 
@@ -2442,6 +2444,31 @@ def main():
             return
         print(f"[cache] Loaded {len(cache['daily'])} days.")
         generate_html(cache["daily"], cache.get("products", {}), args.output, cache.get("monthly_meta_reach", {}), cache.get("monthly_ga4", {}), cache.get("monthly_klaviyo", {}), cache.get("monthly_amazon_ads", {}), cache.get("monthly_amazon_sc", {}))
+        return
+
+    # ── Create-reports-only mode (runs at 6 AM ET via separate cron) ────────
+    if args.create_reports_only:
+        end   = dt.date.today()
+        start = end - dt.timedelta(days=REFRESH_DAYS - 1)
+        print(f"\n[Amazon Ads] Creating reports for {start} to {end}...")
+        new_specs = create_amazon_ads_reports(start, end)
+        if new_specs:
+            if os.path.exists(_AMZ_HISTORY_FILE):
+                with open(_AMZ_HISTORY_FILE) as f:
+                    hist = json.load(f)
+            else:
+                hist = {}
+            # Append (don't replace) so any prior still-pending IDs are preserved
+            existing = hist.get("pending_amazon_reports", [])
+            existing_ids = {s["reportId"] for s in existing}
+            added = [s for s in new_specs if s["reportId"] not in existing_ids]
+            hist["pending_amazon_reports"] = existing + added
+            with open(_AMZ_HISTORY_FILE, "w") as f:
+                json.dump(hist, f, indent=2, default=str)
+            print(f"[Amazon Ads] {len(added)} new report specs saved. "
+                  f"{len(hist['pending_amazon_reports'])} total pending.")
+        else:
+            print("[Amazon Ads] No reports created (credentials missing or API error).")
         return
 
     cache             = load_cache()
@@ -2493,6 +2520,15 @@ def main():
     if existing_pending:
         print(f"[Amazon Ads] Found {len(existing_pending)} pending reports from previous run...")
         amz_ads_daily, still_pending = download_amazon_ads_reports(existing_pending)
+        # Write still-pending IDs back so next create-reports run doesn't re-create them
+        if os.path.exists(_AMZ_HISTORY_FILE):
+            with open(_AMZ_HISTORY_FILE) as f:
+                _hist = json.load(f)
+        else:
+            _hist = {}
+        _hist["pending_amazon_reports"] = still_pending
+        with open(_AMZ_HISTORY_FILE, "w") as f:
+            json.dump(_hist, f, indent=2, default=str)
     else:
         print("[Amazon Ads] No pending reports — skipping download phase.")
 
@@ -2529,25 +2565,6 @@ def main():
     existing_amz_sc = cache.get("monthly_amazon_sc", {}) if cache else {}
     new_amz_sc      = fetch_amazon_sc_monthly(history_start(args.months), dt.date.today())
     existing_amz_sc.update(new_amz_sc)
-
-    # Phase 2: Create new Amazon Ads reports for this run's date range.
-    # They'll be downloaded on tomorrow's run.
-    print(f"\n[Amazon Ads] Creating reports for {start} to {end} (will download tomorrow)...")
-    new_pending = create_amazon_ads_reports(start, end)
-    # Persist pending report specs + any still-incomplete from previous run
-    all_pending = still_pending + new_pending
-    if os.path.exists(_AMZ_HISTORY_FILE):
-        try:
-            with open(_AMZ_HISTORY_FILE) as f:
-                hist = json.load(f)
-        except Exception:
-            hist = {}
-    else:
-        hist = {}
-    hist["pending_amazon_reports"] = all_pending
-    with open(_AMZ_HISTORY_FILE, "w") as f:
-        json.dump(hist, f, indent=2, default=str)
-    print(f"[Amazon Ads] {len(all_pending)} report specs saved to history file.")
 
     save_cache({"daily": existing_daily, "products": existing_products, "monthly_meta_reach": existing_reach, "monthly_ga4": existing_ga4m, "monthly_klaviyo": existing_klav, "monthly_amazon_ads": {}, "monthly_amazon_sc": existing_amz_sc})
     generate_html(existing_daily, existing_products, args.output, existing_reach, existing_ga4m, existing_klav, {}, existing_amz_sc)

@@ -1,0 +1,45 @@
+name: Create Amazon Ads Reports
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 10 * * *'   # 6 AM ET — runs 2 hours before the main refresh
+
+concurrency:
+  group: dashboard-refresh  # shares group with refresh.yml so they never overlap
+  cancel-in-progress: false
+
+jobs:
+  create-reports:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create Amazon Ads reports
+        env:
+          AMAZON_ADS_CLIENT_ID: ${{ secrets.AMAZON_ADS_CLIENT_ID }}
+          AMAZON_ADS_CLIENT_SECRET: ${{ secrets.AMAZON_ADS_CLIENT_SECRET }}
+          AMAZON_ADS_REFRESH_TOKEN: ${{ secrets.AMAZON_ADS_REFRESH_TOKEN }}
+          AMAZON_ADS_PROFILE_ID: ${{ secrets.AMAZON_ADS_PROFILE_ID }}
+        run: python generate_dashboard.py --create-reports-only
+
+      - name: Commit pending report IDs
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add amazon_ads_history.json || true
+          git diff --staged --quiet || git commit -m "Create Amazon Ads reports $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push
