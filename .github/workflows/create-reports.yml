@@ -39,7 +39,10 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
+          cp amazon_ads_history.json /tmp/history_generated.json || true
+          git fetch origin main
+          git reset --hard origin/main
+          cp /tmp/history_generated.json amazon_ads_history.json || true
           git add amazon_ads_history.json || true
           git diff --staged --quiet || git commit -m "Create Amazon Ads reports $(date -u +%Y-%m-%d)"
-          git pull --rebase origin main
           git push

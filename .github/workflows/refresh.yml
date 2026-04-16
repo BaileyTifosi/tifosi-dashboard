@@ -76,7 +76,19 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git add index.html .cache/dashboard_cache.json amazon_ads_history.json || true
+          # Save freshly generated files before syncing with remote
+          cp index.html /tmp/index_generated.html
+          cp amazon_ads_history.json /tmp/history_generated.json || true
+          cp .cache/dashboard_cache.json /tmp/cache_generated.json || true
+          # Reset to latest remote so push never conflicts
+          git fetch origin main
+          git reset --hard origin/main
+          # Restore generated files on top of latest remote state
+          cp /tmp/index_generated.html index.html
+          cp /tmp/history_generated.json amazon_ads_history.json || true
+          cp /tmp/cache_generated.json .cache/dashboard_cache.json || true
+          # Commit and push
+          git add index.html amazon_ads_history.json || true
+          git add -f .cache/dashboard_cache.json || true
           git diff --staged --quiet || git commit -m "Auto-update dashboard $(date -u +%Y-%m-%d)"
-          git pull --rebase origin main
           git push
