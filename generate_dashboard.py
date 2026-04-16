@@ -207,7 +207,7 @@ def load_cache() -> Optional[Dict]:
             # For recent dates: only fill gaps (let live API data take precedence).
             daily = cache.setdefault("daily", {})
             daily_merged = 0
-            cutoff = (dt.date.today() - dt.timedelta(days=30)).isoformat()
+            cutoff = (dt.date.today() - dt.timedelta(days=15)).isoformat()
             for date, fields in history.get("daily", {}).items():
                 if date not in daily:
                     daily[date] = {}
