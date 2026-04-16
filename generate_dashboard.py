@@ -1381,7 +1381,8 @@ def fetch_amazon_sc_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 
 def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str, float]:
-    """Returns {YYYY-MM-DD: gross_sales_amount} — all channels (FBA + FBM), daily granularity."""
+    """Returns {YYYY-MM-DD: gross_sales_amount} — all channels (FBA + FBM), daily granularity.
+    Queries month-by-month to avoid SP-API truncation on long date ranges."""
     if not AMAZON_SP_REFRESH_TOKEN or not AMAZON_SP_LWA_APP_ID:
         print("[Amazon SC] Credentials not set — skipping daily gross sales.")
         return {}
@@ -1400,39 +1401,38 @@ def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str,
 
     sales_client = Sales(credentials=AMAZON_SP_CREDENTIALS, marketplace=Marketplaces.US)
     tz = ZoneInfo(AMAZON_SP_TIMEZONE)
-
-    start_local = dt.datetime(start.year, start.month, start.day, 0, 0, 0, tzinfo=tz)
-    next_day    = end + dt.timedelta(days=1)
-    end_local   = dt.datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=tz)
-
-    print(f"[Amazon SC] Fetching daily gross sales {start} to {end}...")
-
-    try:
-        res = sales_client.get_order_metrics(
-            interval=(start_local, end_local),
-            granularity=_Val("Day"),
-            marketplaceIds=[AMAZON_SP_MARKETPLACE_ID],
-        )
-        rows = res.payload or []
-    except Exception as e:
-        print(f"[Amazon SC] Error fetching daily gross sales: {e}")
-        return {}
-
     end_iso = end.isoformat()
     out: Dict[str, float] = {}
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        # interval field is a string: "2026-04-01T00:00-04:00--2026-04-02T00:00-04:00"
-        interval_val = row.get("interval", "")
-        date_str = interval_val.split("--")[0][:10] if isinstance(interval_val, str) else ""
-        if len(date_str) < 10 or date_str > end_iso:
-            continue
-        total_sales = row.get("totalSales") or {}
-        amount = float(Decimal(str(total_sales.get("amount", "0") or "0")))
-        out[date_str] = amount
 
-    print(f"[Amazon SC] Got daily gross sales for {len(out)} days.")
+    for ms, me in iter_months(start, end):
+        next_day    = me + dt.timedelta(days=1)
+        start_local = dt.datetime(ms.year, ms.month, ms.day, 0, 0, 0, tzinfo=tz)
+        end_local   = dt.datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=tz)
+        ym = ms.strftime("%Y-%m")
+        print(f"[Amazon SC] Fetching daily gross sales {ym}...")
+        try:
+            res = sales_client.get_order_metrics(
+                interval=(start_local, end_local),
+                granularity=_Val("Day"),
+                marketplaceIds=[AMAZON_SP_MARKETPLACE_ID],
+            )
+            rows = res.payload or []
+        except Exception as e:
+            print(f"[Amazon SC] Error fetching {ym}: {e}")
+            continue
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            interval_val = row.get("interval", "")
+            date_str = interval_val.split("--")[0][:10] if isinstance(interval_val, str) else ""
+            if len(date_str) < 10 or date_str > end_iso:
+                continue
+            total_sales = row.get("totalSales") or {}
+            amount = float(Decimal(str(total_sales.get("amount", "0") or "0")))
+            out[date_str] = amount
+
+    print(f"[Amazon SC] Got daily gross sales for {len(out)} days total.")
     return out
 
 
