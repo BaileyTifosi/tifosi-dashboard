@@ -1388,12 +1388,15 @@ def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str,
     try:
         from sp_api.api import Sales
         from sp_api.base import Marketplaces
-        from sp_api.base.sales_enum import Granularity
         from zoneinfo import ZoneInfo
         from decimal import Decimal
     except ImportError as e:
         print(f"[Amazon SC] Missing library: {e}. Skipping.")
         return {}
+
+    class _Val:
+        def __init__(self, v): self.value = v
+        def __str__(self): return self.value
 
     sales_client = Sales(credentials=AMAZON_SP_CREDENTIALS, marketplace=Marketplaces.US)
     tz = ZoneInfo(AMAZON_SP_TIMEZONE)
@@ -1407,7 +1410,7 @@ def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str,
     try:
         res = sales_client.get_order_metrics(
             interval=(start_local, end_local),
-            granularity=Granularity.DAY,
+            granularity=_Val("Day"),
             marketplaceIds=[AMAZON_SP_MARKETPLACE_ID],
         )
         rows = res.payload or []
