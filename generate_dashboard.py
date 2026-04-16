@@ -1388,15 +1388,12 @@ def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str,
     try:
         from sp_api.api import Sales
         from sp_api.base import Marketplaces
+        from sp_api.base.sales_enum import Granularity
         from zoneinfo import ZoneInfo
         from decimal import Decimal
     except ImportError as e:
         print(f"[Amazon SC] Missing library: {e}. Skipping.")
         return {}
-
-    class _Val:
-        def __init__(self, v: str): self.value = v
-        def __str__(self): return self.value
 
     sales_client = Sales(credentials=AMAZON_SP_CREDENTIALS, marketplace=Marketplaces.US)
     tz = ZoneInfo(AMAZON_SP_TIMEZONE)
@@ -1404,49 +1401,29 @@ def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str,
     start_local = dt.datetime(start.year, start.month, start.day, 0, 0, 0, tzinfo=tz)
     next_day    = end + dt.timedelta(days=1)
     end_local   = dt.datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=tz)
-    interval_str = f"{start_local.isoformat(timespec='seconds')}--{end_local.isoformat(timespec='seconds')}"
 
     print(f"[Amazon SC] Fetching daily gross sales {start} to {end}...")
 
-    payload = None
-    for interval in [[interval_str], interval_str]:
-        for granularity in [_Val("Day"), "Day"]:
-            for mk in ["marketplaceIds", "marketplace_ids"]:
-                try:
-                    res = sales_client.get_order_metrics(**{
-                        mk: [AMAZON_SP_MARKETPLACE_ID],
-                        "interval": interval,
-                        "granularity": granularity,
-                    })
-                    payload = res.payload
-                    if payload is not None:
-                        break
-                except Exception:
-                    continue
-            if payload is not None:
-                break
-        if payload is not None:
-            break
-
-    if payload is None:
-        print("[Amazon SC] Could not fetch daily gross sales.")
+    try:
+        res = sales_client.get_order_metrics(
+            interval=(start_local, end_local),
+            granularity=Granularity.DAY,
+            marketplaceIds=[AMAZON_SP_MARKETPLACE_ID],
+        )
+        rows = res.payload or []
+    except Exception as e:
+        print(f"[Amazon SC] Error fetching daily gross sales: {e}")
         return {}
 
-    rows = payload if isinstance(payload, list) else (payload.get("payload") or [])
+    end_iso = end.isoformat()
     out: Dict[str, float] = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
-        interval_obj = row.get("interval", {})
-        if isinstance(interval_obj, str):
-            interval_start_str = interval_obj.split("--")[0]
-        else:
-            interval_start_str = interval_obj.get("start", "")
-        if not interval_start_str:
-            continue
-        try:
-            date_str = dt.datetime.fromisoformat(interval_start_str).date().isoformat()
-        except Exception:
+        # interval field is a string: "2026-04-01T00:00-04:00--2026-04-02T00:00-04:00"
+        interval_val = row.get("interval", "")
+        date_str = interval_val.split("--")[0][:10] if isinstance(interval_val, str) else ""
+        if len(date_str) < 10 or date_str > end_iso:
             continue
         total_sales = row.get("totalSales") or {}
         amount = float(Decimal(str(total_sales.get("amount", "0") or "0")))
