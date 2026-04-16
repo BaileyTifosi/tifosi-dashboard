@@ -1887,6 +1887,17 @@ function rangeLabel(s, e) {
 
 // ── State ─────────────────────────────────────────────────────
 function defaultState() {
+  try {
+    const saved = localStorage.getItem('td_range');
+    if (saved) {
+      const p = JSON.parse(saved);
+      if (p.mainStart && p.mainEnd && p.cmpStart && p.cmpEnd) {
+        return { mainStart:clampDate(p.mainStart), mainEnd:clampDate(p.mainEnd),
+                 cmpStart:clampDate(p.cmpStart),   cmpEnd:clampDate(p.cmpEnd),
+                 compareOn: p.compareOn !== false };
+      }
+    }
+  } catch(e) {}
   const t=new Date(), y=t.getFullYear(), m=t.getMonth();
   const le=new Date(y,m,0), ls=new Date(y,m-1,1);
   const fmt=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
@@ -2156,6 +2167,7 @@ function cancelPicker() {
 function applyPicker() {
   if (clicking) { clicking=false; hoverDate=null; }
   applied={...st};
+  try { localStorage.setItem('td_range', JSON.stringify(applied)); } catch(e) {}
   document.getElementById("modal-backdrop").classList.remove("open");
   updateHeader(); renderCards(); renderAmazonCards();
 }
