@@ -1419,10 +1419,10 @@ def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str,
             year += 1
             continue
 
-        # Step 2: Poll until DONE (max 5 min, check every 15s)
+        # Step 2: Poll until DONE (max 5 min, check every 10s)
         document_id = None
-        for _ in range(20):
-            time.sleep(15)
+        for _ in range(30):
+            time.sleep(10)
             try:
                 info = reports_client.get_report(report_id)
                 status = (info.payload or {}).get('processingStatus', '')
@@ -2666,7 +2666,7 @@ def main():
     new_amz_sc      = fetch_amazon_sc_monthly(history_start(args.months), dt.date.today())
     existing_amz_sc.update(new_amz_sc)
 
-    new_gross = fetch_amazon_sc_daily_gross_sales(history_start(args.months), dt.date.today())
+    new_gross = fetch_amazon_sc_daily_gross_sales(dt.date(dt.date.today().year, 1, 1), dt.date.today())
     for ds, amount in new_gross.items():
         if ds not in existing_daily:
             existing_daily[ds] = {}
