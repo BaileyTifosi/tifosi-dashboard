@@ -1927,15 +1927,10 @@ function aggregate(startD, endD) {
 
   s.aov = s.orders>0 ? s.net_sales/s.orders : null;
 
-  // For reach, users, sessions: use period-level monthly totals when range aligns to full calendar months.
-  // Daily sums overcount (reach deduplication, GA4 sampling).
-  (function() {
-    const startIsFirst = startD.endsWith("-01");
-    const eDate = new Date(endD+"T12:00:00");
-    const lastOfMonth = new Date(eDate.getFullYear(), eDate.getMonth()+1, 0).getDate();
-    const endIsLast = eDate.getDate() === lastOfMonth;
-    if (!startIsFirst || !endIsLast) return;
-
+  // For reach, users, sessions: always use monthly API totals (deduped) when range starts on the 1st.
+  // Daily sums overcount — reach/users deduplicate within a month, so daily summing inflates by ~1.7x.
+  // Partial months show MTD totals through the last daily refresh.
+  if (startD.endsWith("-01")) {
     let reach=0, users=0, sessions=0, ok=true;
     let ym=startD.slice(0,7), endYM=endD.slice(0,7);
     while (ym<=endYM) {
@@ -1946,7 +1941,7 @@ function aggregate(startD, endD) {
       ym=addMonthsYM(ym,1);
     }
     if (ok) { s.meta_reach=reach; s.ga4_users=users; s.ga4_sessions=sessions; }
-  })();
+  }
 
   // Klaviyo: show for any range starting on the 1st — partial months show MTD totals.
   if (startD.endsWith("-01")) {
