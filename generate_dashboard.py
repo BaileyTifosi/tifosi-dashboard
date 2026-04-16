@@ -1380,6 +1380,82 @@ def fetch_amazon_sc_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
     return out
 
 
+def fetch_amazon_sc_daily_gross_sales(start: dt.date, end: dt.date) -> Dict[str, float]:
+    """Returns {YYYY-MM-DD: gross_sales_amount} — all channels (FBA + FBM), daily granularity."""
+    if not AMAZON_SP_REFRESH_TOKEN or not AMAZON_SP_LWA_APP_ID:
+        print("[Amazon SC] Credentials not set — skipping daily gross sales.")
+        return {}
+    try:
+        from sp_api.api import Sales
+        from sp_api.base import Marketplaces
+        from zoneinfo import ZoneInfo
+        from decimal import Decimal
+    except ImportError as e:
+        print(f"[Amazon SC] Missing library: {e}. Skipping.")
+        return {}
+
+    class _Val:
+        def __init__(self, v: str): self.value = v
+        def __str__(self): return self.value
+
+    sales_client = Sales(credentials=AMAZON_SP_CREDENTIALS, marketplace=Marketplaces.US)
+    tz = ZoneInfo(AMAZON_SP_TIMEZONE)
+
+    start_local = dt.datetime(start.year, start.month, start.day, 0, 0, 0, tzinfo=tz)
+    next_day    = end + dt.timedelta(days=1)
+    end_local   = dt.datetime(next_day.year, next_day.month, next_day.day, 0, 0, 0, tzinfo=tz)
+    interval_str = f"{start_local.isoformat(timespec='seconds')}--{end_local.isoformat(timespec='seconds')}"
+
+    print(f"[Amazon SC] Fetching daily gross sales {start} to {end}...")
+
+    payload = None
+    for interval in [[interval_str], interval_str]:
+        for granularity in [_Val("Day"), "Day"]:
+            for mk in ["marketplaceIds", "marketplace_ids"]:
+                try:
+                    res = sales_client.get_order_metrics(**{
+                        mk: [AMAZON_SP_MARKETPLACE_ID],
+                        "interval": interval,
+                        "granularity": granularity,
+                    })
+                    payload = res.payload
+                    if payload is not None:
+                        break
+                except Exception:
+                    continue
+            if payload is not None:
+                break
+        if payload is not None:
+            break
+
+    if payload is None:
+        print("[Amazon SC] Could not fetch daily gross sales.")
+        return {}
+
+    rows = payload if isinstance(payload, list) else (payload.get("payload") or [])
+    out: Dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        interval_obj = row.get("interval", {})
+        if isinstance(interval_obj, str):
+            interval_start_str = interval_obj.split("--")[0]
+        else:
+            interval_start_str = interval_obj.get("start", "")
+        if not interval_start_str:
+            continue
+        try:
+            date_str = dt.datetime.fromisoformat(interval_start_str).date().isoformat()
+        except Exception:
+            continue
+        total_sales = row.get("totalSales") or {}
+        amount = float(Decimal(str(total_sales.get("amount", "0") or "0")))
+        out[date_str] = amount
+
+    print(f"[Amazon SC] Got daily gross sales for {len(out)} days.")
+    return out
+
+
 # ============================================================
 # MERGE
 # ============================================================
@@ -2295,7 +2371,7 @@ function aggregateAmazon(startD, endD) {
   // Amazon daily fields: sum from daily data (works for any date range)
   const keys = DAYS.filter(d => d >= startD && d <= endD);
   let adSpend=0, adSales=0, impressions=0, purchases=0, hasAds=false;
-  let grossSales=0, orgSales=0, ukSales=0, euSales=0, tacosSum=0, tacosDays=0, hasExcel=false;
+  let grossSales=0, hasGrossSales=false;
   for (const k of keys) {
     const d = DATA[k] || {};
     if ('amz_ad_spend' in d) {
@@ -2307,11 +2383,7 @@ function aggregateAmazon(startD, endD) {
     }
     if ('amz_gross_sales' in d) {
       grossSales += d.amz_gross_sales || 0;
-      orgSales   += d.amz_org_sales   || 0;
-      ukSales    += d.amz_uk_sales    || 0;
-      euSales    += d.amz_eu_sales    || 0;
-      if (d.amz_tacos) { tacosSum += d.amz_tacos; tacosDays++; }
-      hasExcel = true;
+      hasGrossSales = true;
     }
   }
   if (hasAds) {
@@ -2321,12 +2393,9 @@ function aggregateAmazon(startD, endD) {
     s.amz_impressions = impressions;
     s.amz_purchases   = purchases;
   }
-  if (hasExcel) {
+  if (hasGrossSales) {
     s.amz_gross_sales = grossSales;
-    s.amz_org_sales   = orgSales;
-    s.amz_uk_sales    = ukSales;
-    s.amz_eu_sales    = euSales;
-    s.amz_tacos       = tacosDays > 0 ? tacosSum / tacosDays : null;
+    s.amz_tacos       = (hasAds && adSpend > 0 && grossSales > 0) ? adSpend / grossSales : null;
   }
 
   // Amazon SC: monthly only (API returns monthly totals). Show for any range starting on the 1st.
@@ -2572,6 +2641,12 @@ def main():
     existing_amz_sc = cache.get("monthly_amazon_sc", {}) if cache else {}
     new_amz_sc      = fetch_amazon_sc_monthly(history_start(args.months), dt.date.today())
     existing_amz_sc.update(new_amz_sc)
+
+    new_gross = fetch_amazon_sc_daily_gross_sales(history_start(args.months), dt.date.today())
+    for ds, amount in new_gross.items():
+        if ds not in existing_daily:
+            existing_daily[ds] = {}
+        existing_daily[ds]["amz_gross_sales"] = amount
 
     save_cache({"daily": existing_daily, "products": existing_products, "monthly_meta_reach": existing_reach, "monthly_ga4": existing_ga4m, "monthly_klaviyo": existing_klav, "monthly_amazon_ads": {}, "monthly_amazon_sc": existing_amz_sc})
     generate_html(existing_daily, existing_products, args.output, existing_reach, existing_ga4m, existing_klav, {}, existing_amz_sc)
