@@ -10499,30 +10499,5 @@
       "sessions": 62970
     }
   },
-  "pending_amazon_reports": [
-    {
-      "reportId": "5becaf8d-63d6-4c03-8c9f-4f0ffb582f3a",
-      "label": "SP",
-      "purch_col": "purchases7d",
-      "sales_col": "sales7d",
-      "start": "2026-04-08",
-      "end": "2026-04-15"
-    },
-    {
-      "reportId": "332e2733-780b-427a-b97d-4ed5e1555616",
-      "label": "SB",
-      "purch_col": "purchases",
-      "sales_col": "sales",
-      "start": "2026-04-08",
-      "end": "2026-04-15"
-    },
-    {
-      "reportId": "0c056174-a60a-4283-9a43-ffb578a1482d",
-      "label": "SD",
-      "purch_col": "purchasesClicks",
-      "sales_col": "salesClicks",
-      "start": "2026-04-08",
-      "end": "2026-04-15"
-    }
-  ]
+  "pending_amazon_reports": []
 }
