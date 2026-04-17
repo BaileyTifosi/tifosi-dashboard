@@ -148,7 +148,7 @@ CACHE_FILE  = os.path.join(_HERE, ".cache", "dashboard_cache.json")
 os.makedirs(os.path.join(_HERE, ".cache"), exist_ok=True)
 SHOPIFY_TIMEZONE = "America/New_York"   # Must match your Shopify store timezone
 HISTORY_MONTHS = 24   # default history depth
-REFRESH_DAYS   = 14   # days re-fetched on daily run (attribution window)
+REFRESH_DAYS   = 17   # days re-fetched on daily run (attribution window)
 
 
 # ============================================================
@@ -1081,8 +1081,8 @@ def fetch_klaviyo_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 _AMZ_REPORT_CONFIGS = [
     ("SP", "SPONSORED_PRODUCTS", "spCampaigns",
-     ["date", "impressions", "cost", "purchases14d",    "sales14d"],
-     "purchases14d",    "sales14d"),
+     ["date", "impressions", "cost", "purchases7d",     "sales7d"],
+     "purchases7d",     "sales7d"),
     ("SB", "SPONSORED_BRANDS",   "sbCampaigns",
      ["date", "impressions", "cost", "purchases14d",    "sales14d"],
      "purchases14d",    "sales14d"),
