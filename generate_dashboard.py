@@ -1145,7 +1145,6 @@ def create_amazon_ads_reports(start: dt.date, end: dt.date) -> List[Dict]:
             }
             r = _req.post(f"{api_base}/reporting/reports", headers=create_headers,
                           json=body, timeout=30)
-            print(f"  [Amazon Ads] {label} POST status={r.status_code} body={r.text[:300]}")
             if r.status_code == 425:
                 m = _re.search(
                     r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}'
@@ -1162,7 +1161,9 @@ def create_amazon_ads_reports(start: dt.date, end: dt.date) -> List[Dict]:
                 time.sleep(30)
                 r = _req.post(f"{api_base}/reporting/reports", headers=create_headers,
                               json=body, timeout=30)
-                print(f"  [Amazon Ads] {label} retry status={r.status_code} body={r.text[:300]}")
+                if not r.ok:
+                    print(f"  [Amazon Ads] {label} retry also failed {r.status_code}: {r.text[:300]}")
+                    continue
             if not r.ok:
                 print(f"  [Amazon Ads] {label} create failed {r.status_code}: {r.text[:500]}")
                 continue
