@@ -148,7 +148,8 @@ CACHE_FILE  = os.path.join(_HERE, ".cache", "dashboard_cache.json")
 os.makedirs(os.path.join(_HERE, ".cache"), exist_ok=True)
 SHOPIFY_TIMEZONE = "America/New_York"   # Must match your Shopify store timezone
 HISTORY_MONTHS = 24   # default history depth
-REFRESH_DAYS   = 14   # days re-fetched on daily run (attribution window)
+REFRESH_DAYS        = 14   # days re-fetched on daily run (attribution window)
+GOOGLE_REFRESH_DAYS = 30   # Google conversion window is 30 days — re-fetch further back
 
 
 # ============================================================
@@ -2655,12 +2656,28 @@ def main():
 
     shopify = fetch_shopify(start, end, batch_by_month=False)
     meta    = fetch_meta(start, end)
-    google  = fetch_google(start, end)
     ga4     = fetch_ga4(start, end)
     msads   = fetch_msads(start, end)
     reddit  = fetch_reddit(start, end)
 
+    # Google uses a 30-day conversion window — re-fetch further back so late-settling
+    # conversions are captured before the date falls outside the refresh window.
+    google_start = end - dt.timedelta(days=GOOGLE_REFRESH_DAYS - 1)
+    google       = fetch_google(google_start, end)
+
     refreshed          = merge_daily(start, end, shopify, meta, google, ga4, msads, reddit, amz_ads_daily)
+
+    # Apply Google conv value for dates before the main refresh window (days 15-30 back)
+    for ds, g in google.items():
+        if ds < start.isoformat():
+            if ds not in existing_daily:
+                existing_daily[ds] = {}
+            existing_daily[ds].update({
+                "google_spend":             g.get("spend", 0.0),
+                "google_clicks":            g.get("clicks", 0),
+                "google_impressions":       g.get("impressions", 0),
+                "google_conversions_value": g.get("conversions_value", 0.0),
+            })
     refreshed_products = fetch_shopify_products(start, end)
 
     # Apply Amazon Ads data for dates BEFORE the refresh window (e.g. April 1-3 when SP report
