@@ -2660,6 +2660,16 @@ def main():
 
     refreshed          = merge_daily(start, end, shopify, meta, google, ga4, msads, reddit, amz_ads_daily)
     refreshed_products = fetch_shopify_products(start, end)
+
+    # Apply Amazon Ads data for dates BEFORE the refresh window (e.g. April 1-3 when SP report
+    # covers Apr 1-17 but refresh window only starts Apr 4). merge_daily silently ignores these.
+    start_iso = start.isoformat()
+    for ds, z in amz_ads_daily.items():
+        if ds < start_iso:
+            if ds not in existing_daily:
+                existing_daily[ds] = {}
+            existing_daily[ds].update(z)
+
     # Field-level merge: preserve existing fields (e.g. amz_ad_spend from history)
     # when the current fetch didn't return data for that source.
     for ds, new_row in refreshed.items():
