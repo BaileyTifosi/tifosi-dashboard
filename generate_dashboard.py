@@ -150,6 +150,7 @@ SHOPIFY_TIMEZONE = "America/New_York"   # Must match your Shopify store timezone
 HISTORY_MONTHS = 24   # default history depth
 REFRESH_DAYS        = 14   # days re-fetched on daily run (attribution window)
 GOOGLE_REFRESH_DAYS = 30   # Google conversion window is 30 days — re-fetch further back
+BING_REFRESH_DAYS   = 30   # Microsoft Ads conversion window is 30 days — re-fetch further back
 
 
 # ============================================================
@@ -2417,16 +2418,20 @@ function aggregateAmazon(startD, endD) {
 
   // Amazon daily fields: sum from daily data (works for any date range)
   const keys = DAYS.filter(d => d >= startD && d <= endD);
-  let adSpend=0, adSales=0, impressions=0, purchases=0, hasAds=false;
+  let adSpend=0, adSales=0, hasAds=false;
+  let impressions=0, purchases=0, hasImpPurch=false;
   let grossSales=0, hasGrossSales=false;
   for (const k of keys) {
     const d = DATA[k] || {};
     if ('amz_ad_spend' in d) {
-      adSpend     += d.amz_ad_spend    || 0;
-      adSales     += d.amz_ad_sales    || 0;
+      adSpend += d.amz_ad_spend || 0;
+      adSales += d.amz_ad_sales || 0;
+      hasAds = true;
+    }
+    if ('amz_impressions' in d) {
       impressions += d.amz_impressions || 0;
       purchases   += d.amz_purchases   || 0;
-      hasAds = true;
+      hasImpPurch = true;
     }
     if ('amz_gross_sales' in d) {
       grossSales += d.amz_gross_sales || 0;
@@ -2434,9 +2439,11 @@ function aggregateAmazon(startD, endD) {
     }
   }
   if (hasAds) {
-    s.amz_ad_spend    = adSpend;
-    s.amz_ad_sales    = adSales;
-    s.amz_ad_roas     = adSpend > 0 ? adSales/adSpend : null;
+    s.amz_ad_spend = adSpend;
+    s.amz_ad_sales = adSales;
+    s.amz_ad_roas  = adSpend > 0 ? adSales/adSpend : null;
+  }
+  if (hasImpPurch) {
     s.amz_impressions = impressions;
     s.amz_purchases   = purchases;
   }
@@ -2658,17 +2665,18 @@ def main():
     shopify = fetch_shopify(start, end, batch_by_month=False)
     meta    = fetch_meta(start, end)
     ga4     = fetch_ga4(start, end)
-    msads   = fetch_msads(start, end)
     reddit  = fetch_reddit(start, end)
 
-    # Google uses a 30-day conversion window — re-fetch further back so late-settling
-    # conversions are captured before the date falls outside the refresh window.
+    # Google and Bing use 30-day conversion windows — re-fetch further back so
+    # late-settling conversions are captured before the date leaves the refresh window.
     google_start = end - dt.timedelta(days=GOOGLE_REFRESH_DAYS - 1)
     google       = fetch_google(google_start, end)
+    bing_start   = end - dt.timedelta(days=BING_REFRESH_DAYS - 1)
+    msads        = fetch_msads(bing_start, end)
 
     refreshed          = merge_daily(start, end, shopify, meta, google, ga4, msads, reddit, amz_ads_daily)
 
-    # Apply Google conv value for dates before the main refresh window (days 15-30 back)
+    # Apply Google and Bing data for dates before the main refresh window (days 15-30 back)
     for ds, g in google.items():
         if ds < start.isoformat():
             if ds not in existing_daily:
@@ -2678,6 +2686,15 @@ def main():
                 "google_clicks":            g.get("clicks", 0),
                 "google_impressions":       g.get("impressions", 0),
                 "google_conversions_value": g.get("conversions_value", 0.0),
+            })
+    for ds, b in msads.items():
+        if ds < start.isoformat():
+            if ds not in existing_daily:
+                existing_daily[ds] = {}
+            existing_daily[ds].update({
+                "bing_spend":             b.get("spend", 0.0),
+                "bing_clicks":            b.get("clicks", 0),
+                "bing_conversions_value": b.get("conversions_value", 0.0),
             })
     refreshed_products = fetch_shopify_products(start, end)
 
