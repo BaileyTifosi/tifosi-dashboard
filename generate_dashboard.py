@@ -615,7 +615,7 @@ def fetch_ga4(start: dt.date, end: dt.date) -> Dict[str, Dict]:
         req = RunReportRequest(
             property=f"properties/{GA4_PROPERTY_ID}",
             dimensions=[Dimension(name="date")],
-            metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
+            metrics=[Metric(name="activeUsers"), Metric(name="sessions")],
             date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
         )
         resp = ga4_client.run_report(req)
@@ -666,7 +666,7 @@ def fetch_ga4_monthly(start: dt.date, end: dt.date) -> Dict[str, Dict]:
             req = RunReportRequest(
                 property=f"properties/{GA4_PROPERTY_ID}",
                 dimensions=[],
-                metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
+                metrics=[Metric(name="activeUsers"), Metric(name="sessions")],
                 date_ranges=[DateRange(start_date=ms.isoformat(), end_date=me.isoformat())],
             )
             resp = ga4_client.run_report(req)
@@ -1081,11 +1081,11 @@ def fetch_klaviyo_daily(start: dt.date, end: dt.date) -> Dict[str, Dict]:
 
 _AMZ_REPORT_CONFIGS = [
     ("SP", "SPONSORED_PRODUCTS", "spCampaigns",
-     ["date", "impressions", "cost", "purchases7d",     "sales7d"],
-     "purchases7d",     "sales7d"),
+     ["date", "impressions", "cost", "purchases14d",    "sales14d"],
+     "purchases14d",    "sales14d"),
     ("SB", "SPONSORED_BRANDS",   "sbCampaigns",
-     ["date", "impressions", "cost", "purchases",       "sales"],
-     "purchases",       "sales"),
+     ["date", "impressions", "cost", "purchases14d",    "sales14d"],
+     "purchases14d",    "sales14d"),
     ("SD", "SPONSORED_DISPLAY",  "sdCampaigns",
      ["date", "impressions", "cost", "purchasesClicks", "salesClicks"],
      "purchasesClicks", "salesClicks"),
@@ -2027,20 +2027,32 @@ function aggregate(startD, endD) {
 
   s.aov = s.orders>0 ? s.net_sales/s.orders : null;
 
-  // For reach, users, sessions: always use monthly API totals (deduped) when range starts on the 1st.
-  // Daily sums overcount — reach/users deduplicate within a month, so daily summing inflates by ~1.7x.
-  // Partial months show MTD totals through the last daily refresh.
-  if (startD.endsWith("-01")) {
-    let reach=0, users=0, sessions=0, ok=true;
-    let ym=startD.slice(0,7), endYM=endD.slice(0,7);
-    while (ym<=endYM) {
-      if (MONTHLY_META_REACH[ym]==null || MONTHLY_GA4[ym]==null) { ok=false; break; }
-      reach   += MONTHLY_META_REACH[ym];
-      users   += MONTHLY_GA4[ym].users;
-      sessions+= MONTHLY_GA4[ym].sessions;
-      ym=addMonthsYM(ym,1);
+  // For reach, users, sessions: use monthly API totals (truly deduped) only for complete calendar months.
+  // "Complete" = start is the 1st AND end is the last day of the end month.
+  // Partial months (e.g. Apr 1-15): GA4 uses daily sums (slight overcount but right date range);
+  // meta_reach is set to null because daily reach sums are wildly inaccurate (~2-4x).
+  {
+    const endYM = endD.slice(0,7);
+    const [ey,em] = endYM.split('-').map(Number);
+    const lastDay = new Date(ey, em, 0).toISOString().slice(0,10);
+    const isCompleteMonths = startD.endsWith("-01") && endD >= lastDay;
+    if (isCompleteMonths) {
+      let reach=0, users=0, sessions=0, ok=true;
+      let ym=startD.slice(0,7);
+      while (ym<=endYM) {
+        if (MONTHLY_META_REACH[ym]==null || MONTHLY_GA4[ym]==null) { ok=false; break; }
+        reach   += MONTHLY_META_REACH[ym];
+        users   += MONTHLY_GA4[ym].users;
+        sessions+= MONTHLY_GA4[ym].sessions;
+        ym=addMonthsYM(ym,1);
+      }
+      if (ok) { s.meta_reach=reach; s.ga4_users=users; s.ga4_sessions=sessions; }
+      else     { s.meta_reach=null; }  // monthly data missing — don't fall back to daily sum
+    } else {
+      // Partial month: GA4 daily sums already in s.ga4_users/sessions from the loop above.
+      // meta_reach daily sums overcount by 2-4x — show null so the card hides rather than misleads.
+      s.meta_reach = null;
     }
-    if (ok) { s.meta_reach=reach; s.ga4_users=users; s.ga4_sessions=sessions; }
   }
 
   // Klaviyo: show for any range starting on the 1st — partial months show MTD totals.
