@@ -148,7 +148,7 @@ CACHE_FILE  = os.path.join(_HERE, ".cache", "dashboard_cache.json")
 os.makedirs(os.path.join(_HERE, ".cache"), exist_ok=True)
 SHOPIFY_TIMEZONE = "America/New_York"   # Must match your Shopify store timezone
 HISTORY_MONTHS = 24   # default history depth
-REFRESH_DAYS   = 17   # TEMPORARY: backfill Apr 1-3 — revert to 14 after next refresh
+REFRESH_DAYS   = 14   # days re-fetched on daily run (attribution window)
 
 
 # ============================================================
