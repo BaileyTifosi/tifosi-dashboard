@@ -845,10 +845,12 @@ def fetch_msads(start: dt.date, end: dt.date) -> Dict[str, Dict]:
                     ds = tp[:10]
                     if ds not in daily:
                         daily[ds] = {"spend": 0.0, "clicks": 0, "conversions_value": 0.0}
+                    def _f(val):
+                        return float(str(val or 0).replace(",", ""))
                     try:
-                        daily[ds]["spend"]             += float(row.get("Spend",   0) or 0)
-                        daily[ds]["clicks"]            += int(float(row.get("Clicks", 0) or 0))
-                        daily[ds]["conversions_value"] += float(row.get("Revenue", 0) or 0)
+                        daily[ds]["spend"]             += _f(row.get("Spend",   0))
+                        daily[ds]["clicks"]            += int(_f(row.get("Clicks", 0)))
+                        daily[ds]["conversions_value"] += _f(row.get("Revenue", 0))
                     except Exception:
                         pass
                 for ds, v in daily.items():
