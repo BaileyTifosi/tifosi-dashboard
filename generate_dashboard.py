@@ -1142,6 +1142,7 @@ def create_amazon_ads_reports(start: dt.date, end: dt.date) -> List[Dict]:
             }
             r = _req.post(f"{api_base}/reporting/reports", headers=create_headers,
                           json=body, timeout=30)
+            print(f"  [Amazon Ads] {label} POST status={r.status_code} body={r.text[:300]}")
             if r.status_code == 425:
                 m = _re.search(
                     r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}'
@@ -1151,13 +1152,16 @@ def create_amazon_ads_reports(start: dt.date, end: dt.date) -> List[Dict]:
                                     "purch_col": purch_col, "sales_col": sales_col,
                                     "start": start.isoformat(), "end": end.isoformat()})
                     print(f"  [Amazon Ads] {label} reusing existing report {m.group(0)}")
+                else:
+                    print(f"  [Amazon Ads] {label} 425 but no UUID found in response — skipping")
                 continue
             if r.status_code == 429:
                 time.sleep(30)
                 r = _req.post(f"{api_base}/reporting/reports", headers=create_headers,
                               json=body, timeout=30)
+                print(f"  [Amazon Ads] {label} retry status={r.status_code} body={r.text[:300]}")
             if not r.ok:
-                print(f"  [Amazon Ads] {label} create failed {r.status_code}: {r.text[:200]}")
+                print(f"  [Amazon Ads] {label} create failed {r.status_code}: {r.text[:500]}")
                 continue
             report_id = r.json().get("reportId")
             if report_id:
@@ -1165,9 +1169,12 @@ def create_amazon_ads_reports(start: dt.date, end: dt.date) -> List[Dict]:
                                 "purch_col": purch_col, "sales_col": sales_col,
                                 "start": start.isoformat(), "end": end.isoformat()})
                 print(f"  [Amazon Ads] {label} report created: {report_id}")
+            else:
+                print(f"  [Amazon Ads] {label} response OK but no reportId: {r.text[:300]}")
         return pending
     except Exception as e:
-        print(f"[Amazon Ads] create_reports error: {e}")
+        import traceback
+        print(f"[Amazon Ads] create_reports error: {e}\n{traceback.format_exc()}")
         return []
 
 
