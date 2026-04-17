@@ -2563,6 +2563,10 @@ def main():
                         help="Regenerate HTML from cache without any API calls")
     parser.add_argument("--create-reports-only", action="store_true",
                         help="Create Amazon Ads async reports and save IDs to history file — no dashboard generation")
+    parser.add_argument("--backfill-amazon-ads", action="store_true",
+                        help="Create Amazon Ads reports for every month in --backfill-year (default: last year)")
+    parser.add_argument("--backfill-year", type=int, default=None,
+                        help="Year to backfill Amazon Ads impressions/purchases (default: current year - 1)")
     parser.add_argument("--output",     default=OUTPUT_HTML, help="Output HTML path")
     args = parser.parse_args()
 
@@ -2599,6 +2603,39 @@ def main():
                   f"{len(hist['pending_amazon_reports'])} total pending.")
         else:
             print("[Amazon Ads] No reports created (credentials missing or API error).")
+        return
+
+    # ── Backfill Amazon Ads impressions/purchases for a full year ────────────
+    if args.backfill_amazon_ads:
+        year = args.backfill_year or (dt.date.today().year - 1)
+        print(f"\n[Amazon Ads Backfill] Creating monthly reports for {year}...")
+        all_new: List[Dict] = []
+        for month in range(1, 13):
+            m_start = dt.date(year, month, 1)
+            # Last day of month
+            if month == 12:
+                m_end = dt.date(year, 12, 31)
+            else:
+                m_end = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
+            print(f"  Creating reports for {m_start} → {m_end}...")
+            specs = create_amazon_ads_reports(m_start, m_end)
+            all_new.extend(specs)
+        if all_new:
+            if os.path.exists(_AMZ_HISTORY_FILE):
+                with open(_AMZ_HISTORY_FILE) as f:
+                    hist = json.load(f)
+            else:
+                hist = {}
+            existing = hist.get("pending_amazon_reports", [])
+            existing_ids = {s["reportId"] for s in existing}
+            added = [s for s in all_new if s["reportId"] not in existing_ids]
+            hist["pending_amazon_reports"] = existing + added
+            with open(_AMZ_HISTORY_FILE, "w") as f:
+                json.dump(hist, f, indent=2, default=str)
+            print(f"[Amazon Ads Backfill] {len(added)} reports queued. "
+                  f"Run the main refresh workflow to download them.")
+        else:
+            print("[Amazon Ads Backfill] No reports created (credentials missing or API error).")
         return
 
     cache             = load_cache()

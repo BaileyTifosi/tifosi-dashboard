@@ -1,0 +1,51 @@
+name: Backfill Amazon Ads Historical Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Year to backfill (e.g. 2025)'
+        required: false
+        default: '2025'
+
+concurrency:
+  group: dashboard-refresh
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create backfill reports
+        env:
+          AMAZON_ADS_CLIENT_ID: ${{ secrets.AMAZON_ADS_CLIENT_ID }}
+          AMAZON_ADS_CLIENT_SECRET: ${{ secrets.AMAZON_ADS_CLIENT_SECRET }}
+          AMAZON_ADS_REFRESH_TOKEN: ${{ secrets.AMAZON_ADS_REFRESH_TOKEN }}
+          AMAZON_ADS_PROFILE_ID: ${{ secrets.AMAZON_ADS_PROFILE_ID }}
+        run: python generate_dashboard.py --backfill-amazon-ads --backfill-year ${{ github.event.inputs.year }}
+
+      - name: Commit pending report IDs
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          cp amazon_ads_history.json /tmp/history_generated.json || true
+          git fetch origin main
+          git reset --hard origin/main
+          cp /tmp/history_generated.json amazon_ads_history.json || true
+          git add amazon_ads_history.json || true
+          git diff --staged --quiet || git commit -m "Backfill Amazon Ads reports for ${{ github.event.inputs.year }}"
+          git push
