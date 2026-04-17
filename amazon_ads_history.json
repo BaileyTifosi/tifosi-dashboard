@@ -10515,6 +10515,14 @@
       "sales_col": "salesClicks",
       "start": "2026-04-01",
       "end": "2026-04-17"
+    },
+    {
+      "reportId": "ef289024-c46d-4bf3-b7cc-19e91ccf92cb",
+      "label": "SB",
+      "purch_col": "purchases",
+      "sales_col": "sales",
+      "start": "2026-04-01",
+      "end": "2026-04-17"
     }
   ]
 }
