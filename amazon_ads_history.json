@@ -10499,14 +10499,5 @@
       "sessions": 62970
     }
   },
-  "pending_amazon_reports": [
-    {
-      "reportId": "5dc9dd23-cc5a-47b1-8758-c2510711a818",
-      "label": "SD",
-      "purch_col": "purchasesClicks",
-      "sales_col": "salesClicks",
-      "start": "2026-04-01",
-      "end": "2026-04-17"
-    }
-  ]
+  "pending_amazon_reports": []
 }
